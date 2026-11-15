@@ -29,6 +29,7 @@ export const ERROR_CODES = [
   "bad_request",
   "too_large",
   "rate_limited",
+  "access_pending",
   "not_configured",
   "upstream_error",
   "upstream_refused",

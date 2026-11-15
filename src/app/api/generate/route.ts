@@ -1,8 +1,9 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { ERROR_CODES, MAX_IMAGE_BYTES, MAX_REQUEST_BODY_BYTES, STYLE_IDS, type ErrorCode, type GenerateResponse } from "@/lib/api";
+import { ensureUser } from "@/lib/db";
 import { clientKey, checkRateLimit } from "@/lib/rate-limit";
 import { OpenRouterError, generateStyledImage } from "@/lib/openrouter";
 import { getStyle } from "@/lib/styles";
@@ -45,6 +46,33 @@ export async function POST(request: NextRequest) {
   const { userId } = await auth();
   if (!userId) {
     return errorResponse("unauthorized", "Please sign in to generate images.", 401);
+  }
+
+  // --- Access control (Neon) ------------------------------------------------
+  // First-time users are auto-provisioned as *pending members* and blocked
+  // until an admin approves them in the database.
+  let accessUser;
+  try {
+    const clerkUser = await currentUser();
+    const email = clerkUser?.primaryEmailAddress?.emailAddress;
+    if (!email) {
+      return errorResponse("unauthorized", "Could not resolve your account. Please sign in again.", 401);
+    }
+    accessUser = await ensureUser({
+      clerkUserId: userId,
+      email,
+      fullName: [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ") || null,
+    });
+  } catch (error) {
+    console.error("[generate] Database access check failed:", error);
+    return errorResponse("upstream_error", "Could not verify your access. Please try again.", 500);
+  }
+  if (!accessUser.approved) {
+    return errorResponse(
+      "access_pending",
+      "Your account is pending approval. Please ask an admin to grant you access.",
+      403,
+    );
   }
 
   // --- Rate limiting -------------------------------------------------------
@@ -122,6 +150,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   bad_request: 400,
   too_large: 413,
   rate_limited: 429,
+  access_pending: 403,
   not_configured: 503,
   upstream_error: 502,
   upstream_refused: 502,

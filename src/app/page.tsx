@@ -1,6 +1,7 @@
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { Suspense } from "react";
 
+import { AdminUsersPanel } from "@/components/AdminUsersPanel";
 import { ImageStudio } from "@/components/ImageStudio";
 
 export default function Home() {
@@ -46,7 +47,10 @@ export default function Home() {
       <main className="relative z-10 mx-auto w-full max-w-6xl flex-1 px-6 pb-16">
         <Suspense fallback={<StudioSkeleton />}>
           <Show when="signed-in" fallback={<SignInPrompt />}>
-            <ImageStudio />
+            <div className="flex flex-col gap-10">
+              <ImageStudio />
+              <AdminUsersPanel />
+            </div>
           </Show>
         </Suspense>
       </main>
