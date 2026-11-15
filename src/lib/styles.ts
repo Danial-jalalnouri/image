@@ -26,7 +26,11 @@ export interface StyleDefinition {
   prompt: string;
 }
 
-const IDENTITY_PRESERVATION =
+/**
+ * Shared by every style: the identity-preservation contract appended to each
+ * scene prompt. Exported so /api/styles can serve it for the docs page.
+ */
+export const IDENTITY_PRESERVATION =
   "Keep the person's face, features, hairstyle, skin tone, and body proportions exactly " +
   "identical to the source photo — they must remain recognizably the same person. " +
   "Dress them appropriately for the scene. Integrate them seamlessly: match the scene's " +

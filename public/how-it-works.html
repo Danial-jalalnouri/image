@@ -179,6 +179,34 @@
   .card.detail { border-left: 3px solid var(--accent); min-height: 90px; }
   .card.detail pre { font-size: 12.5px; }
   .card.detail b { font-size: 15.5px; }
+
+  /* Style prompt explorer inside the Box 2 panel */
+  .style-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 14px; }
+  .style-chips button {
+    font: inherit; font-size: 13px; color: var(--muted);
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px;
+    padding: 6px 14px; cursor: pointer; transition: color .15s, border-color .15s, background .15s;
+  }
+  .style-chips button:hover { color: var(--text); border-color: rgba(255,255,255,.28); }
+  .style-chips button.sel { color: #fff; background: rgba(99,102,241,.22); border-color: var(--accent); }
+  .picker-note { font-size: 13px; color: var(--faint); }
+  .prompt-blocks { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 4px 0 12px; }
+  @media (max-width: 720px) { .prompt-blocks { grid-template-columns: 1fr; } }
+  .pblock { background: var(--code-bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+  .pblock h4 { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; margin-bottom: 8px; }
+  .pblock.scene { border-top: 2px solid var(--accent); }
+  .pblock.scene h4 { color: var(--accent); }
+  .pblock.identity { border-top: 2px solid var(--amber); }
+  .pblock.identity h4 { color: var(--amber); }
+  .pblock.final { border-left: 3px solid var(--green); }
+  .pblock.final h4 { color: var(--green); }
+  .pblock pre { margin: 0; background: transparent; border: none; padding: 0; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: var(--muted); }
+  .copybtn {
+    display: inline-block; font: inherit; font-size: 12px; font-weight: 600; color: #c7d2fe;
+    background: rgba(99,102,241,.12); border: 1px solid rgba(99,102,241,.35); border-radius: 8px;
+    padding: 5px 12px; cursor: pointer; margin-bottom: 8px; transition: background .15s;
+  }
+  .copybtn:hover { background: rgba(99,102,241,.22); }
 </style>
 </head>
 <body>
@@ -405,7 +433,7 @@
       },
       build: {
         color: "#818cf8", tag: "🧩 Box 2 · Server", title: "What we add: the prompt",
-        html: "<p>The route looks up <code class=\"inline\">office</code> in the style registry and assembles the instruction that will steer the model. Two pieces are combined:</p><pre>scene prompt (from styles.ts)\n  \"Place the person from the photo into a bright, modern executive\n   office… floor-to-ceiling windows, city skyline, walnut desk…\n   Shot as a professional corporate portrait, 85mm lens at f/2.8…\"\n\n+ IDENTITY_PRESERVATION (shared contract of every style)\n  \"Keep the person's face, features, hairstyle, skin tone… exactly\n   identical… match lighting, shadows, perspective, depth of field…\"</pre><p>The prompt and the photo are packed into a two-part message: one <code class=\"inline\">text</code> part, one <code class=\"inline\">image_url</code> part. Deep dive: <a href=\"#styles\">style registry</a></p>"
+        html: "<p>The route looks up the chosen <code class=\"inline\">styleId</code> in the style registry and assembles the instruction that will steer the model. Pick a style to see its exact prompt — live from the running app's registry:</p><div id=\"styleChips\" class=\"style-chips\"><span class=\"picker-note\">Loading styles…</span></div><div id=\"styleDetails\"></div><p>The prompt and the photo are packed into a two-part message: one <code class=\"inline\">text</code> part, one <code class=\"inline\">image_url</code> part. Deep dive: <a href=\"#styles\">style registry</a></p>"
       },
       hop2: {
         color: "#a78bfa", tag: "➡️ Hop 2 · Server → AI", title: "The OpenRouter request",
@@ -436,7 +464,82 @@
     var panel = document.getElementById("detailPanel");
     var items = Array.prototype.slice.call(document.querySelectorAll("#wire [data-step]"));
 
+    // ----- Style prompt explorer (used by the "build" step panel) ------------
+    var stylesData = null;
+    var stylesPromise = null;
+    var currentStep = null;
+    var selectedStyleId = null;
+
+    function loadStyles() {
+      if (!stylesPromise) {
+        // Served live from the app: GET /api/styles mirrors src/lib/styles.ts.
+        stylesPromise = fetch("/api/styles").then(function (r) { return r.json(); });
+      }
+      return stylesPromise;
+    }
+
+    function initStylePicker() {
+      var chipsEl = document.getElementById("styleChips");
+      if (!chipsEl) return;
+      loadStyles().then(function (data) {
+        if (currentStep !== "build" || !document.getElementById("styleChips")) return;
+        stylesData = data;
+        if (!selectedStyleId) selectedStyleId = data.styles[0].id; // "office" is first
+        renderChips();
+        renderStyleDetails();
+      }).catch(function () {
+        chipsEl.innerHTML = '<span class="picker-note">⚠️ Style prompts load from the running app (GET /api/styles). Open this page through the server — e.g. http://localhost:3000/how-it-works.html — to explore them.</span>';
+      });
+    }
+
+    function renderChips() {
+      var chipsEl = document.getElementById("styleChips");
+      chipsEl.innerHTML = "";
+      stylesData.styles.forEach(function (s) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = s.id === selectedStyleId ? "sel" : "";
+        b.textContent = s.emoji + " " + s.name;
+        b.addEventListener("click", function () {
+          selectedStyleId = s.id;
+          renderChips();
+          renderStyleDetails();
+        });
+        chipsEl.appendChild(b);
+      });
+    }
+
+    function renderStyleDetails() {
+      var box = document.getElementById("styleDetails");
+      if (!box || !stylesData) return;
+      var style = stylesData.styles.filter(function (s) { return s.id === selectedStyleId; })[0];
+      if (!style) return;
+      var identity = stylesData.identity;
+      // Every prompt is scene text + IDENTITY_PRESERVATION; split it back apart.
+      var idx = style.prompt.lastIndexOf(identity);
+      var scene = idx >= 0 ? style.prompt.slice(0, idx) : "";
+      box.innerHTML =
+        '<div class="prompt-blocks">' +
+          '<div class="pblock scene"><h4>Part 1 · Scene prompt — “' + style.name + '”</h4><pre></pre></div>' +
+          '<div class="pblock identity"><h4>Part 2 · Identity lock-in (shared by every style)</h4><pre></pre></div>' +
+        '</div>' +
+        '<div class="pblock final"><h4>Final prompt — plain text sent to the AI</h4>' +
+          '<button type="button" class="copybtn" id="copyPromptBtn">Copy prompt</button>' +
+          '<pre></pre></div>';
+      box.querySelector(".scene pre").textContent = scene.trim();
+      box.querySelector(".identity pre").textContent = identity;
+      box.querySelector(".final pre").textContent = style.prompt;
+      document.getElementById("copyPromptBtn").addEventListener("click", function () {
+        var btn = this;
+        navigator.clipboard.writeText(style.prompt).then(function () {
+          btn.textContent = "Copied ✓";
+          setTimeout(function () { btn.textContent = "Copy prompt"; }, 1600);
+        });
+      });
+    }
+
     function select(key) {
+      currentStep = key;
       items.forEach(function (el) {
         el.classList.toggle("active", el.getAttribute("data-step") === key);
       });
@@ -446,6 +549,7 @@
       panel.innerHTML =
         '<span class="stage-tag" style="color:' + s.color + '">' + s.tag + "</span>" +
         "<b>" + s.title + "</b>" + s.html;
+      if (key === "build") initStylePicker();
       if (panel.scrollIntoView && window.innerWidth < 720) panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
 
@@ -456,6 +560,9 @@
         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(key); }
       });
     });
+
+    // Warm the styles fetch so the Box 2 panel is ready the moment it opens.
+    loadStyles().catch(function () {});
   })();
   </script>
 
