@@ -27,9 +27,19 @@ export default function Home() {
         <ImageStudio />
       </main>
 
-      <footer className="relative z-10 border-t border-white/5 py-6 text-center text-xs text-zinc-600">
-        Powered by Gemini image generation via OpenRouter · Photos are processed per request and
-        never stored.
+      <footer className="relative z-10 border-t border-white/5 py-6">
+        <div className="flex flex-col items-center justify-center gap-2 text-xs text-zinc-600 sm:flex-row sm:gap-4">
+          <span>
+            Powered by Gemini image generation via OpenRouter · Photos are processed per request and
+            never stored.
+          </span>
+          <a
+            href="/how-it-works.html"
+            className="text-indigo-300/80 underline-offset-4 transition hover:text-indigo-200 hover:underline"
+          >
+            How it works →
+          </a>
+        </div>
       </footer>
     </div>
   );

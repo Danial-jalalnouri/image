@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex" />
+<title>Portrait Studio — How it works</title>
+<style>
+  :root {
+    --bg: #09090b;
+    --panel: #141417;
+    --panel-2: #1a1a1f;
+    --border: rgba(255, 255, 255, 0.09);
+    --text: #f4f4f5;
+    --muted: #a1a1aa;
+    --faint: #71717a;
+    --accent: #818cf8;
+    --accent-2: #c084fc;
+    --green: #34d399;
+    --amber: #fbbf24;
+    --rose: #fb7185;
+    --code-bg: #101014;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .glow {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(700px 420px at 12% -5%, rgba(99,102,241,.14), transparent 70%),
+      radial-gradient(800px 500px at 88% 0%, rgba(217,70,239,.10), transparent 70%);
+  }
+  .wrap { position: relative; z-index: 1; max-width: 980px; margin: 0 auto; padding: 48px 24px 96px; }
+
+  header.brand { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }
+  .logo {
+    width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6); font-weight: 800; font-size: 16px; color: #fff;
+  }
+  .brand span { font-weight: 600; color: var(--muted); letter-spacing: .02em; }
+  h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.15; letter-spacing: -0.02em; margin-bottom: 12px; }
+  h1 .grad { background: linear-gradient(90deg, #a5b4fc, #e9a8fc); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { color: var(--muted); font-size: 18px; max-width: 700px; }
+
+  h2 { font-size: 24px; letter-spacing: -0.01em; margin: 56px 0 8px; display: flex; align-items: center; gap: 10px; }
+  h2 .num {
+    font-size: 12px; font-weight: 700; color: var(--accent); background: rgba(99,102,241,.14);
+    border: 1px solid rgba(99,102,241,.25); padding: 2px 10px; border-radius: 999px; letter-spacing: .06em;
+  }
+  h3 { font-size: 16px; margin: 28px 0 8px; color: #e4e4e7; }
+  p { color: var(--muted); margin: 10px 0; }
+  p strong, li strong { color: #e4e4e7; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 20px 22px; margin: 18px 0;
+  }
+  .card.file { border-left: 3px solid var(--accent); }
+  .filehead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  code.path {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; color: #e9d5ff;
+    background: var(--code-bg); border: 1px solid var(--border); padding: 3px 10px; border-radius: 8px;
+  }
+  .tag { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; }
+  .tag.server { color: var(--amber); background: rgba(251,191,36,.10); border: 1px solid rgba(251,191,36,.25); }
+  .tag.client { color: var(--green); background: rgba(52,211,153,.10); border: 1px solid rgba(52,211,153,.25); }
+  .tag.shared { color: var(--accent); background: rgba(129,140,248,.10); border: 1px solid rgba(129,140,248,.30); }
+  .tag.config { color: var(--accent-2); background: rgba(192,132,252,.10); border: 1px solid rgba(192,132,252,.30); }
+
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 18px; overflow-x: auto; margin: 12px 0; font-size: 13px; line-height: 1.6;
+  }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  pre .c { color: #6b7280; font-style: italic; }
+  pre .k { color: #c4b5fd; }
+  pre .s { color: #86efac; }
+  pre .f { color: #93c5fd; }
+  pre .n { color: #fcd34d; }
+  code.inline { color: #e9d5ff; background: var(--code-bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 6px; font-size: 12.5px; }
+
+  /* Flow diagram */
+  .flow { display: flex; flex-direction: column; gap: 0; margin: 24px 0; }
+  .fstep {
+    display: flex; gap: 16px; align-items: flex-start;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px;
+  }
+  .fnum {
+    flex: 0 0 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; color: #fff; background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  }
+  .fstep b { display: block; color: #e4e4e7; font-size: 15px; }
+  .fstep small { color: var(--faint); font-size: 13px; }
+  .fstep .where { margin-left: auto; flex-shrink: 0; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; }
+  .farrow { width: 2px; height: 22px; background: rgba(129,140,248,.4); margin-left: 33px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+  th { text-align: left; color: var(--faint); font-weight: 600; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.05); color: var(--muted); vertical-align: top; }
+  td:first-child { white-space: nowrap; }
+  td code { color: #e9d5ff; font-size: 12.5px; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pill.ok { color: var(--green); background: rgba(52,211,153,.10); }
+  .pill.warn { color: var(--amber); background: rgba(251,191,36,.10); }
+  .pill.err { color: var(--rose); background: rgba(251,113,133,.10); }
+
+  .tree { background: var(--code-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; line-height: 1.8; color: var(--muted); overflow-x: auto; }
+  .tree .d { color: var(--accent-2); }
+  .tree .f { color: #e4e4e7; }
+  .tree .note { color: #52525b; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } .fstep .where { display: none; } }
+
+  .note {
+    display: flex; gap: 12px; background: rgba(99,102,241,.07); border: 1px solid rgba(99,102,241,.22);
+    border-radius: 12px; padding: 14px 16px; margin: 16px 0; font-size: 14px; color: var(--muted);
+  }
+  .note .icon { flex-shrink: 0; }
+  footer { margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--faint); font-size: 13px; }
+  .toc { columns: 2; column-gap: 32px; margin: 18px 0; }
+  .toc li { margin: 4px 0; color: var(--muted); break-inside: avoid; }
+  @media (max-width: 720px) { .toc { columns: 1; } }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+<div class="wrap">
+
+  <header class="brand">
+    <div class="logo">P</div>
+    <span>Portrait Studio · Engineering documentation</span>
+  </header>
+
+  <h1>How the code works, <span class="grad">part by part</span></h1>
+  <p class="lede">
+    Portrait Studio takes one photo of a person, lets the user pick a scene (for example
+    <strong>Office</strong>), and generates that person placed into the scene — same face, new setting —
+    using Google's <code class="inline">google/gemini-3.1-flash-image</code> model through
+    <a href="https://openrouter.ai" target="_blank" rel="noopener">OpenRouter</a>.
+    This page explains every part of the project and how a request travels through it.
+  </p>
+
+  <div class="card">
+    <strong>Contents</strong>
+    <ol class="toc">
+      <li><a href="#stack">Tech stack</a></li>
+      <li><a href="#tree">Project structure</a></li>
+      <li><a href="#flow">Life of a request</a></li>
+      <li><a href="#styles">Style registry — src/lib/styles.ts</a></li>
+      <li><a href="#api-contract">API contract — src/lib/api.ts</a></li>
+      <li><a href="#route">API route — src/app/api/generate/route.ts</a></li>
+      <li><a href="#openrouter">OpenRouter client — src/lib/openrouter.ts</a></li>
+      <li><a href="#ratelimit">Rate limiting — src/lib/rate-limit.ts</a></li>
+      <li><a href="#image-client">Browser image prep — src/lib/image-client.ts</a></li>
+      <li><a href="#ui">UI components</a></li>
+      <li><a href="#errors">Error handling map</a></li>
+      <li><a href="#extend">How to add a new style</a></li>
+      <li><a href="#run">Running &amp; deploying</a></li>
+    </ol>
+  </div>
+
+  <h2 id="stack"><span class="num">01</span> Tech stack</h2>
+  <table>
+    <tr><th>Layer</th><th>Choice</th><th>Why</th></tr>
+    <tr><td>Framework</td><td>Next.js 16 (App Router) + React 19</td><td>One repo serves the UI and the server route; the OpenRouter key never needs to reach the browser.</td></tr>
+    <tr><td>Language</td><td>TypeScript (strict)</td><td>The client/server API contract is a single typed module, so drift is caught at build time.</td></tr>
+    <tr><td>Styling</td><td>Tailwind CSS v4</td><td>Utility classes keep the dark "studio" look co-located with markup; theme lives in <code class="inline">globals.css</code>.</td></tr>
+    <tr><td>Validation</td><td>Zod</td><td>Declarative input validation with friendly, user-safe error messages.</td></tr>
+    <tr><td>AI model</td><td><code class="inline">google/gemini-3.1-flash-image</code></td><td>A <em>text+image → text+image</em> model ("Nano Banana 2"): it receives the user's photo plus a prompt and returns the edited image inline as base64.</td></tr>
+  </table>
+
+  <h2 id="tree"><span class="num">02</span> Project structure</h2>
+  <div class="tree">
+<span class="d">src/</span><br>
+├─ <span class="d">app/</span><br>
+│&nbsp;&nbsp;├─ <span class="f">layout.tsx</span> <span class="note">— HTML shell, fonts, metadata</span><br>
+│&nbsp;&nbsp;├─ <span class="f">page.tsx</span> <span class="note">— landing page: hero + &lt;ImageStudio /&gt;</span><br>
+│&nbsp;&nbsp;├─ <span class="f">globals.css</span> <span class="note">— Tailwind v4 theme, glow + shimmer effects</span><br>
+│&nbsp;&nbsp;└─ <span class="d">api/generate/</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└─ <span class="f">route.ts</span> <span class="note">— the ONLY place that talks to OpenRouter</span><br>
+├─ <span class="d">components/</span> <span class="note">— all "use client" UI</span><br>
+│&nbsp;&nbsp;├─ <span class="f">ImageStudio.tsx</span> <span class="note">— state machine + fetch orchestration</span><br>
+│&nbsp;&nbsp;├─ <span class="f">ImageUploader.tsx</span> <span class="note">— drag &amp; drop / click / paste</span><br>
+│&nbsp;&nbsp;├─ <span class="f">StylePicker.tsx</span> <span class="note">— style cards (data-driven)</span><br>
+│&nbsp;&nbsp;└─ <span class="f">ResultPanel.tsx</span> <span class="note">— result, download/copy, error states</span><br>
+└─ <span class="d">lib/</span> <span class="note">— pure logic, no UI</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├─ <span class="f">styles.ts</span> <span class="note">— style registry (prompts live here)</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├─ <span class="f">api.ts</span> <span class="note">— shared client/server contract + types</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├─ <span class="f">openrouter.ts</span> <span class="note">— server-only OpenRouter client</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├─ <span class="f">image-client.ts</span> <span class="note">— browser-side validation &amp; downscale</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├─ <span class="f">rate-limit.ts</span> <span class="note">— per-IP fixed-window limiter</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;└─ <span class="f">constants.ts</span> <span class="note">— model name, size limits, rate windows</span><br>
+<span class="f">next.config.ts</span> <span class="note">— security headers, Turbopack CSS rule</span><br>
+<span class="f">.env.example</span> <span class="note">— documents every environment variable</span>
+  </div>
+  <div class="note"><span class="icon">🧭</span><span>
+    The dependency direction is one-way: <strong>components → lib → (server) openrouter.ts</strong>.
+    <code class="inline">openrouter.ts</code> reads <code class="inline">process.env.OPENROUTER_API_KEY</code> and is imported only
+    from the route handler, so the secret can never be bundled into client JavaScript.
+  </span></div>
+
+  <h2 id="flow"><span class="num">03</span> Life of a request</h2>
+  <div class="flow">
+    <div class="fstep"><div class="fnum">1</div><div><b>User picks a photo</b><small>Drag &amp; drop, file picker, or clipboard paste in <code class="inline">ImageUploader</code>.</small></div><span class="where">Browser</span></div>
+    <div class="farrow"></div>
+    <div class="fstep"><div class="fnum">2</div><div><b>Validate + downscale locally</b><small><code class="inline">image-client.ts</code> checks type/size, and re-encodes oversized images via canvas (max 2048&nbsp;px, JPEG q0.9). Small uploads stay untouched.</small></div><span class="where">Browser</span></div>
+    <div class="farrow"></div>
+    <div class="fstep"><div class="fnum">3</div><div><b>POST /api/generate</b><small>JSON body: <code class="inline">{ image: "data:image/…;base64,…", styleId: "office" }</code>.</small></div><span class="where">Browser → Server</span></div>
+    <div class="farrow"></div>
+    <div class="fstep"><div class="fnum">4</div><div><b>Rate limit + hard size ceiling</b><small>Per-IP fixed window (8 req/min). <code class="inline">Content-Length</code> above 14&nbsp;MB is rejected before parsing.</small></div><span class="where">Server</span></div>
+    <div class="farrow"></div>
+    <div class="fstep"><div class="fnum">5</div><div><b>Zod validation</b><small>Only <code class="inline">data:image/(png|jpeg|webp);base64,…</code> URLs pass, decoded size ≤ 10&nbsp;MB, and <code class="inline">styleId</code> must exist in the registry.</small></div><span class="where">Server</span></div>
+    <div class="farrow"></div>
+    <div class="fstep"><div class="fnum">6</div><div><b>OpenRouter call</b><small><code class="inline">openrouter.ts</code> sends the style prompt + user image to <code class="inline">/v1/chat/completions</code> with <code class="inline">modalities: ["image","text"]</code>. Bearer key from env, 120&nbsp;s timeout, aborted if the user's request dies.</small></div><span class="where">Server → OpenRouter</span></div>
+    <div class="farrow"></div>
+    <div class="fstep"><div class="fnum">7</div><div><b>Parse the response</b><small>The generated picture arrives in <code class="inline">choices[0].message.images[].image_url.url</code> as a data URL. If the model replies with text only (e.g. a refusal), that note becomes the error message.</small></div><span class="where">Server</span></div>
+    <div class="farrow"></div>
+    <div class="fstep"><div class="fnum">8</div><div><b>Show the result</b><small><code class="inline">ResultPanel</code> renders the image with Download / Copy actions, or a friendly error card.</small></div><span class="where">Browser</span></div>
+  </div>
+
+  <h2 id="styles"><span class="num">04</span> Style registry — <code class="inline">src/lib/styles.ts</code></h2>
+  <p>
+    Styles are <strong>data, not code</strong>. Each entry in the <code class="inline">STYLES</code> array is a
+    <code class="inline">StyleDefinition</code>: an <code class="inline">id</code>, display fields
+    (<code class="inline">name</code>, <code class="inline">tagline</code>, <code class="inline">emoji</code>,
+    <code class="inline">gradient</code>), and a <code class="inline">prompt</code> — the exact instruction sent to the model.
+  </p>
+  <p>Every prompt starts with the scene description, then appends one shared block,
+    <code class="inline">IDENTITY_PRESERVATION</code>, which is the product's core contract:</p>
+  <pre><span class="c">// excerpt from styles.ts</span>
+<span class="k">const</span> <span class="n">IDENTITY_PRESERVATION</span> =
+  <span class="s">"Keep the person's face, features, hairstyle… exactly identical… "</span> +
+  <span class="s">"Integrate them seamlessly: match the scene's lighting direction, "</span> +
+  <span class="s">"color temperature, shadows, perspective, depth of field…"</span>;
+
+<span class="k">export</span> <span class="k">const</span> <span class="n">STYLES</span> = [
+  { <span class="n">id</span>: <span class="s">"office"</span>, <span class="n">name</span>: <span class="s">"Office"</span>, <span class="f">prompt</span>:
+    <span class="s">"Place the person from the photo into a bright, modern executive office… "</span> +
+    IDENTITY_PRESERVATION },
+  <span class="c">/* beach, cafe, studio, nightscape, alpine … */</span>
+];</pre>
+  <p>
+    The Office prompt additionally describes camera language (85&nbsp;mm, f/2.8, window light) — concrete
+    photographic direction consistently produces more believable composites. The picker UI and the API's
+    valid-style list both <em>derive from this array</em>, so adding an entry is all it takes to ship a new scene.
+  </p>
+
+  <h2 id="api-contract"><span class="num">05</span> API contract — <code class="inline">src/lib/api.ts</code></h2>
+  <p>
+    This module is imported by <strong>both</strong> the browser and the server, which is what prevents
+    client/server drift:
+  </p>
+  <ul style="margin: 8px 24px 8px 0; padding-left: 22px; color: var(--muted);">
+    <li><code class="inline">GenerateRequest</code> — <code class="inline">{ image, styleId }</code></li>
+    <li><code class="inline">GenerateResponse</code> — success <code class="inline">{ ok: true, image, note? }</code> or failure <code class="inline">{ ok: false, error, code }</code></li>
+    <li><code class="inline">ERROR_CODES</code> / <code class="inline">ErrorCode</code> — the seven stable error codes both sides understand</li>
+    <li><code class="inline">STYLE_IDS</code> — derived from the registry with <code class="inline">STYLES.map(s =&gt; s.id)</code>, so it can never go stale</li>
+  </ul>
+
+  <h2 id="route"><span class="num">06</span> API route — <code class="inline">src/app/api/generate/route.ts</code></h2>
+  <p>The single server endpoint. Its <code class="inline">POST</code> handler runs four gates in order:</p>
+  <div class="card">
+    <h3 style="margin-top:0;">Gate 1 — rate limit</h3>
+    <p style="margin-top:0;"><code class="inline">checkRateLimit(clientKey(request.headers))</code>. Blocked callers get
+      <code class="inline">429</code> plus a <code class="inline">Retry-After</code> header.</p>
+    <h3>Gate 2 — body ceiling</h3>
+    <p style="margin-top:0;"><code class="inline">Content-Length</code> over 14&nbsp;MB returns <code class="inline">413</code> before the body is even read — cheap protection against memory abuse.</p>
+    <h3>Gate 3 — schema validation</h3>
+    <p style="margin-top:0;">A zod schema enforces the data-URL format, decodes the base64 to measure real bytes
+      (<code class="inline">base64ToBytes</code> accounts for padding and newlines), and checks the style id.
+      Failures map to <code class="inline">400</code> or <code class="inline">413</code>.</p>
+    <h3>Gate 4 — generation</h3>
+    <p style="margin-top:0;">Resolves the style from the registry and calls
+      <code class="inline">generateStyledImage({ imageDataUrl, prompt: style.prompt, signal: request.signal })</code>.
+      Passing <code class="inline">request.signal</code> means a cancelled browser request also cancels the upstream call.</p>
+  </div>
+  <pre><span class="c">// the happy path, condensed</span>
+<span class="k">const</span> <span class="n">style</span> = <span class="f">getStyle</span>(parsed.data.styleId)!;
+<span class="k">const</span> <span class="n">result</span> = <span class="k">await</span> <span class="f">generateStyledImage</span>({ imageDataUrl, prompt: style.prompt, signal: request.signal });
+<span class="k">return</span> <span class="f">NextResponse.json</span>({ ok: <span class="k">true</span>, image: result.image, note: result.note });</pre>
+  <p>
+    Errors are translated once, here: <code class="inline">OpenRouterError.code</code> → HTTP status via
+    <code class="inline">STATUS_BY_CODE</code>. Configuration problems (<code class="inline">not_configured</code>)
+    log the technical detail server-side and return a sanitized message, so env-var names never reach end users.
+  </p>
+
+  <h2 id="openrouter"><span class="num">07</span> OpenRouter client — <code class="inline">src/lib/openrouter.ts</code></h2>
+  <p>
+    A dependency-free <code class="inline">fetch</code> wrapper (no SDK needed). Everything it does is visible in one function,
+    <code class="inline">generateStyledImage()</code>:
+  </p>
+  <pre><span class="f">fetch</span>(<span class="s">`${baseUrl}/chat/completions`</span>, {
+  <span class="n">headers</span>: {
+    <span class="n">Authorization</span>: <span class="s">`Bearer ${process.env.OPENROUTER_API_KEY}`</span>,
+    <span class="s">"HTTP-Referer"</span>: process.env.APP_URL,   <span class="c">// OpenRouter attribution</span>
+  },
+  <span class="n">body</span>: <span class="f">JSON.stringify</span>({
+    <span class="n">model</span>: process.env.OPENROUTER_IMAGE_MODEL ?? <span class="s">"google/gemini-3.1-flash-image"</span>,
+    <span class="n">modalities</span>: [<span class="s">"image"</span>, <span class="s">"text"</span>],        <span class="c">// ask for image output</span>
+    <span class="n">messages</span>: [{
+      <span class="n">role</span>: <span class="s">"user"</span>,
+      <span class="n">content</span>: [
+        { <span class="n">type</span>: <span class="s">"text"</span>,  <span class="n">text</span>: prompt },                <span class="c">// the style instruction</span>
+        { <span class="n">type</span>: <span class="s">"image_url"</span>, <span class="n">image_url</span>: { <span class="n">url</span>: imageDataUrl } }, <span class="c">// the user's photo</span>
+      ],
+    }],
+  }),
+  <span class="n">signal</span>: <span class="f">AbortSignal.any</span>([requestSignal, <span class="f">AbortSignal.timeout</span>(<span class="n">120_000</span>)]),
+})</pre>
+  <p>Key behaviors:</p>
+  <ul style="margin: 8px 24px 8px 0; padding-left: 22px; color: var(--muted);">
+    <li><strong>Model selection</strong> defaults to <code class="inline">google/gemini-3.1-flash-image</code> ( Nano Banana 2), overridable via <code class="inline">OPENROUTER_IMAGE_MODEL</code> — useful for testing against <code class="inline">google/gemini-3-pro-image</code> or future models.</li>
+    <li><strong>Timeout &amp; cancellation</strong>: both the caller's signal and a 120&nbsp;s deadline are combined; races are caught and re-thrown as typed errors (<code class="inline">timeout</code>, <code class="inline">upstream_error</code>).</li>
+    <li><strong>Typed failures</strong>: every failure path throws <code class="inline">OpenRouterError</code> carrying a machine-readable <code class="inline">code</code> and a user-safe <code class="inline">message</code>. Upstream 401/402/403 → <code class="inline">not_configured</code>, 429 → <code class="inline">rate_limited</code>, and so on.</li>
+    <li><strong>No-image responses</strong>: if the model answers with text but no image (usually a content refusal), the note is surfaced so the user knows <em>why</em>.</li>
+  </ul>
+
+  <h2 id="ratelimit"><span class="num">08</span> Rate limiting — <code class="inline">src/lib/rate-limit.ts</code></h2>
+  <p>
+    A fixed-window limiter: per client, at most <code class="inline">RATE_LIMIT_MAX_REQUESTS</code> (8) accepted
+    requests per <code class="inline">RATE_LIMIT_WINDOW_MS</code> (60&nbsp;s). Timestamps live in a
+    <code class="inline">Map</code>; a periodic sweep evicts empty buckets so memory can't grow unbounded.
+  </p>
+  <p>
+    It is deliberately <strong>in-memory</strong> — zero dependencies, perfect for a single instance. The module
+    exposes exactly two functions (<code class="inline">checkRateLimit</code>, <code class="inline">clientKey</code>),
+    so swapping the internals for Redis or an edge limiter when scaling horizontally is a one-file change.
+  </p>
+
+  <h2 id="image-client"><span class="num">09</span> Browser image prep — <code class="inline">src/lib/image-client.ts</code></h2>
+  <p>
+    The browser does the heavy lifting <em>before</em> any bytes hit the network:
+  </p>
+  <ol style="margin: 8px 24px; padding-left: 22px; color: var(--muted);">
+    <li><strong>Validate</strong> — MIME type must be PNG/JPEG/WebP; source file ≤ 25&nbsp;MB. Violations throw <code class="inline">InvalidImageError</code> with a friendly message.</li>
+    <li><strong>Downscale if needed</strong> — anything above 2048&nbsp;px (or over the 10&nbsp;MB wire limit) is drawn onto a canvas at reduced scale and re-encoded (JPEG q0.9; PNG keeps its format for transparency) via <code class="inline">createImageBitmap</code>.</li>
+    <li><strong>Fall back safely</strong> — if canvas re-encoding fails (rare browser quirks), the original data URL is returned and the server's identical limits act as the net.</li>
+  </ol>
+  <p>
+    This keeps requests small and fast, and it means the server-side size limits are a safety
+    net rather than the everyday path. The module also provides <code class="inline">downloadDataUrl()</code>,
+    which powers the result's Download button.
+  </p>
+
+  <h2 id="ui"><span class="num">10</span> UI components</h2>
+  <div class="grid2">
+    <div class="card">
+      <div class="filehead"><code class="path">components/ImageStudio.tsx</code><span class="tag client">client</span></div>
+      The orchestrator. Holds <code class="inline">photo</code>, <code class="inline">styleId</code>, and a four-state
+      machine (<code class="inline">idle → generating → done | error</code>). It owns an
+      <code class="inline">AbortController</code> in a ref so starting a new generation (or unmounting)
+      cancels the in-flight one. Numbered step sections guide the user; the Generate button stays
+      disabled until a photo exists.
+    </div>
+    <div class="card">
+      <div class="filehead"><code class="path">components/ImageUploader.tsx</code><span class="tag client">client</span></div>
+      Three input paths: drag &amp; drop (with hover highlight), the native file picker, and a
+      global <code class="inline">paste</code> listener for screenshots. Once a photo is set it shows a preview
+      with <em>Replace</em> / <em>Remove</em>. All files flow through <code class="inline">prepareImageFile()</code>.
+    </div>
+    <div class="card">
+      <div class="filehead"><code class="path">components/StylePicker.tsx</code><span class="tag client">client</span></div>
+      Renders <code class="inline">STYLES</code> as an accessible <code class="inline">radiogroup</code> of cards
+      (<code class="inline">role="radio"</code>, <code class="inline">aria-checked</code>). Contains no style data of
+      its own — it maps the registry, so UI and API can never disagree.
+    </div>
+    <div class="card">
+      <div class="filehead"><code class="path">components/ResultPanel.tsx</code><span class="tag client">client</span></div>
+      Renders the four states: an empty placeholder, a shimmering "generating" card, a friendly error card,
+      or the result image with <strong>Download</strong> (via <code class="inline">downloadDataUrl</code>) and
+      <strong>Copy</strong> (clipboard) actions.
+    </div>
+  </div>
+  <div class="card">
+    <div class="filehead"><code class="path">app/page.tsx</code> + <code class="path">app/layout.tsx</code><span class="tag client">server</span></div>
+    <code class="inline">layout.tsx</code> loads the Geist fonts, sets metadata, and wraps everything;
+    <code class="inline">page.tsx</code> renders the hero and mounts <code class="inline">&lt;ImageStudio /&gt;</code>.
+    The ambient page glow and shimmer keyframes live in <code class="inline">globals.css</code> (Tailwind v4 theme).
+  </div>
+
+  <h2 id="errors"><span class="num">11</span> Error handling map</h2>
+  <p>Every failure becomes one of seven stable codes, shared by both sides through <code class="inline">api.ts</code>:</p>
+  <table>
+    <tr><th>Code</th><th>HTTP</th><th>When it happens</th><th>User sees</th></tr>
+    <tr><td><code>bad_request</code></td><td><span class="pill err">400</span></td><td>Malformed JSON, not a data URL, unknown style</td><td>Exact reason</td></tr>
+    <tr><td><code>too_large</code></td><td><span class="pill warn">413</span></td><td>Image over 10&nbsp;MB decoded / 14&nbsp;MB body</td><td>"Image is too large."</td></tr>
+    <tr><td><code>rate_limited</code></td><td><span class="pill warn">429</span></td><td>More than 8 requests/min from one IP (also from OpenRouter itself)</td><td>Retry message + <code>Retry-After</code></td></tr>
+    <tr><td><code>not_configured</code></td><td><span class="pill err">503</span></td><td>Missing/invalid API key or out of credits</td><td>Sanitized message; detail only in server logs</td></tr>
+    <tr><td><code>upstream_error</code></td><td><span class="pill err">502</span></td><td>OpenRouter unreachable or 5xx</td><td>"Something went wrong…"</td></tr>
+    <tr><td><code>upstream_refused</code></td><td><span class="pill err">502</span></td><td>Model answered with text, no image (e.g. safety refusal)</td><td>The model's own explanation</td></tr>
+    <tr><td><code>timeout</code></td><td><span class="pill warn">504</span></td><td>Upstream exceeded 120&nbsp;s</td><td>"Generation timed out…"</td></tr>
+  </table>
+  <div class="note"><span class="icon">🔒</span><span>
+    Security posture: the OpenRouter key is server-only; uploads are type-checked twice (client and server) so
+    scripts or HTML can never masquerade as images; response headers set <code class="inline">X-Content-Type-Options</code>,
+    <code class="inline">X-Frame-Options: DENY</code>, <code class="inline">Referrer-Policy</code>, and a
+    <code class="inline">Permissions-Policy</code> that disables camera/mic/geolocation.
+  </span></div>
+
+  <h2 id="extend"><span class="num">12</span> How to add a new style</h2>
+  <p>No UI or API changes are needed — append one object to <code class="inline">STYLES</code> in <code class="inline">src/lib/styles.ts</code>:</p>
+  <pre>{
+  <span class="n">id</span>: <span class="s">"gym"</span>,                      <span class="c">// stable, unique, used in the API</span>
+  <span class="n">name</span>: <span class="s">"Gym"</span>,                    <span class="c">// card title</span>
+  <span class="n">tagline</span>: <span class="s">"Mid-workout, weights in hand"</span>,
+  <span class="n">emoji</span>: <span class="s">"🏋️"</span>,
+  <span class="n">gradient</span>: <span class="s">"from-lime-400/80 to-emerald-600/80"</span>,
+  <span class="n">prompt</span>: <span class="s">"Place the person from the photo in a modern gym… "</span> + IDENTITY_PRESERVATION,
+}</pre>
+  <p>
+    Everything else updates automatically: the picker card, the API's valid <code class="inline">styleId</code> list
+    (derived), the "Generate … scene" button label, and the download filename.
+  </p>
+
+  <h2 id="run"><span class="num">13</span> Running &amp; deploying</h2>
+  <pre><span class="c"># local development</span>
+npm install
+cp .env.example .env.local    <span class="c"># set OPENROUTER_API_KEY=sk-or-...</span>
+npm run dev                   <span class="c"># http://localhost:3000</span>
+
+<span class="c"># production</span>
+npm run build
+npm start</pre>
+  <table>
+    <tr><th>Env variable</th><th>Required</th><th>Purpose</th></tr>
+    <tr><td><code>OPENROUTER_API_KEY</code></td><td>yes</td><td>OpenRouter API key (server-side only)</td></tr>
+    <tr><td><code>OPENROUTER_IMAGE_MODEL</code></td><td>no</td><td>Model override; default <code>google/gemini-3.1-flash-image</code></td></tr>
+    <tr><td><code>OPENROUTER_BASE_URL</code></td><td>no</td><td>Self-hosted / proxy OpenRouter-compatible endpoint</td></tr>
+    <tr><td><code>APP_URL</code></td><td>no</td><td>Sent as <code>HTTP-Referer</code> for OpenRouter rankings</td></tr>
+  </table>
+  <p>
+    Deploy to Vercel or any Node host; configure the env vars in the platform's dashboard — never commit
+    <code class="inline">.env.local</code>. Photos are processed per request and never stored by this app.
+  </p>
+
+  <footer>
+    Portrait Studio · powered by <code class="inline">google/gemini-3.1-flash-image</code> via OpenRouter ·
+    <a href="/">← Back to the app</a>
+  </footer>
+</div>
+</body>
+</html>
