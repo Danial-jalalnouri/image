@@ -25,6 +25,7 @@ export type GenerateResponse =
   | { ok: false; error: string; code: ErrorCode };
 
 export const ERROR_CODES = [
+  "unauthorized",
   "bad_request",
   "too_large",
   "rate_limited",

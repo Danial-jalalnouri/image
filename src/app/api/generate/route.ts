@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
@@ -39,6 +40,13 @@ function errorResponse(code: ErrorCode, message: string, status: number, headers
 }
 
 export async function POST(request: NextRequest) {
+  // --- Authentication -------------------------------------------------------
+  // Image generation costs real credits, so only signed-in users may call it.
+  const { userId } = await auth();
+  if (!userId) {
+    return errorResponse("unauthorized", "Please sign in to generate images.", 401);
+  }
+
   // --- Rate limiting -------------------------------------------------------
   const limiter = checkRateLimit(clientKey(request.headers));
   if (!limiter.allowed) {
@@ -110,6 +118,7 @@ export async function POST(request: NextRequest) {
 }
 
 const STATUS_BY_CODE: Record<ErrorCode, number> = {
+  unauthorized: 401,
   bad_request: 400,
   too_large: 413,
   rate_limited: 429,

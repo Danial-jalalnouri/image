@@ -5,6 +5,8 @@ face, brand-new setting.
 
 Built with Next.js (App Router, TypeScript, Tailwind v4). Image generation runs on
 `google/gemini-3.1-flash-image` (Nano Banana 2) through [OpenRouter](https://openrouter.ai).
+Authentication is handled by [Clerk](https://clerk.com) — **email + password only**
+(no social login), managed via the `clerk` CLI against the `image` application.
 
 ## Quick start
 
@@ -14,7 +16,22 @@ cp .env.example .env.local   # add your OPENROUTER_API_KEY
 npm run dev                  # http://localhost:3000
 ```
 
-Get an API key at <https://openrouter.ai/keys>.
+Clerk development keys live in `.env.local` too (never committed). If they are missing, run
+`npx clerk@latest env pull` while linked to the `image` application
+(`app_3M9z7hwFSUaXabY1fmtsNvCizYL`).
+
+## Authentication
+
+- **Provider**: Clerk, application `image` (dev instance). Configure providers with
+  `npx clerk@latest config pull` / `config patch` — Google OAuth is disabled; sign-in is
+  email + password only.
+- **Gated UI**: `src/app/page.tsx` renders the studio behind `<Show when="signed-in">`
+  (Clerk Core 3 pattern); signed-out visitors see a sign-in prompt. Header shows
+  `<SignInButton mode="modal">` / `<SignUpButton mode="modal">` when signed out and
+  `<UserButton />` when signed in.
+- **Protected API**: `POST /api/generate` calls `await auth()` and returns `401 unauthorized`
+  without a signed-in user — generation costs real credits. `GET /api/styles` stays public.
+- **Middleware**: `src/proxy.ts` (Next.js 16 name for middleware) runs `clerkMiddleware()`.
 
 ## How it works
 
@@ -68,6 +85,8 @@ src/
 | `OPENROUTER_IMAGE_MODEL` | no | Override model (default `google/gemini-3.1-flash-image`) |
 | `OPENROUTER_BASE_URL` | no | OpenRouter-compatible endpoint override |
 | `APP_URL` | no | Sent to OpenRouter as `HTTP-Referer` for attribution |
+| `CLERK_SECRET_KEY` / `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | yes | Clerk keys (written by `clerk init` / `clerk env pull`) |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` etc. | no | Clerk route overrides (written by `clerk init`) |
 
 ## Production notes
 
