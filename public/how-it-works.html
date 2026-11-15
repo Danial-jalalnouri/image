@@ -128,6 +128,33 @@
   .toc { columns: 2; column-gap: 32px; margin: 18px 0; }
   .toc li { margin: 4px 0; color: var(--muted); break-inside: avoid; }
   @media (max-width: 720px) { .toc { columns: 1; } }
+
+  /* Wire chart: labeled connector arrows between stages */
+  .warrow { display: flex; align-items: center; gap: 12px; margin: 4px 0 4px 34px; }
+  .warrow .wline {
+    width: 2px; height: 30px; border-radius: 2px; flex-shrink: 0;
+    background: linear-gradient(180deg, #6366f1, #a78bfa);
+    position: relative;
+  }
+  .warrow .wline::after {
+    content: "▼"; position: absolute; bottom: -13px; left: -3.5px;
+    color: #a78bfa; font-size: 9px;
+  }
+  .wlbl {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px; color: #c7d2fe;
+    background: rgba(99,102,241,.09); border: 1px solid rgba(99,102,241,.28);
+    padding: 5px 12px; border-radius: 999px; white-space: nowrap;
+  }
+  .stage-tag { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 6px; display: block; }
+  .st-user { color: var(--green); }
+  .st-build { color: #a5b4fc; }
+  .st-ai { color: var(--accent-2); }
+  .st-back { color: var(--amber); }
+  @media (max-width: 720px) {
+    .warrow { margin-left: 14px; }
+    .wlbl { font-size: 10.5px; white-space: normal; }
+  }
 </style>
 </head>
 <body>
@@ -154,6 +181,7 @@
       <li><a href="#stack">Tech stack</a></li>
       <li><a href="#tree">Project structure</a></li>
       <li><a href="#flow">Life of a request</a></li>
+      <li><a href="#payload">Wire chart — user photo → prompt → AI → result</a></li>
       <li><a href="#styles">Style registry — src/lib/styles.ts</a></li>
       <li><a href="#api-contract">API contract — src/lib/api.ts</a></li>
       <li><a href="#route">API route — src/app/api/generate/route.ts</a></li>
@@ -226,7 +254,128 @@
     <div class="fstep"><div class="fnum">8</div><div><b>Show the result</b><small><code class="inline">ResultPanel</code> renders the image with Download / Copy actions, or a friendly error card.</small></div><span class="where">Browser</span></div>
   </div>
 
-  <h2 id="styles"><span class="num">04</span> Style registry — <code class="inline">src/lib/styles.ts</code></h2>
+  <h2 id="payload"><span class="num">04</span> Wire chart — user photo → prompt → AI → result</h2>
+  <p>
+    The same journey as above, but showing <strong>the exact data at every hop</strong>:
+    what we receive from the user, what we add to it, what the AI receives, and what comes back.
+  </p>
+
+  <div class="flow">
+    <!-- STAGE 1: FROM THE USER -->
+    <div class="fstep" style="border-left: 3px solid var(--green);">
+      <div class="fnum" style="background: linear-gradient(135deg, #10b981, #34d399);">1</div>
+      <div style="flex: 1; min-width: 0;">
+        <span class="stage-tag st-user">From the user 📥</span>
+        <b>Two inputs, gathered by the UI</b>
+        <pre>📸 a photo of a person  (PNG / JPEG / WebP, ≤ 25 MB)
+      → validated &amp; downscaled in the browser (≤ 2048 px)
+      → becomes a data URL:  "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ…"
+
+🖱️ a style click on the <b>Office</b> card
+      → becomes:  styleId: "office"</pre>
+      </div>
+    </div>
+
+    <div class="warrow">
+      <span class="wline"></span>
+      <span class="wlbl">POST /api/generate  ·  body →  { "image": "data:image/…", "styleId": "office" }</span>
+    </div>
+
+    <!-- STAGE 2: WHAT WE ADD -->
+    <div class="fstep" style="border-left: 3px solid var(--accent);">
+      <div class="fnum" style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">2</div>
+      <div style="flex: 1; min-width: 0;">
+        <span class="stage-tag st-build">What we add — the prompt 🧩</span>
+        <b>The server looks up styleId "office" and assembles one instruction</b>
+        <pre>scene prompt (from the registry)
+  "Place the person from the photo into a bright, modern executive office.
+   Floor-to-ceiling windows, city skyline, walnut desk, laptop…
+   Seated behind the desk in smart business attire…
+   Shot as a professional corporate portrait, 85mm lens at f/2.8…"
+
++ IDENTITY_PRESERVATION (shared by every style)
+  "Keep the person's face, features, hairstyle, skin tone… exactly identical…
+   Match the scene's lighting direction, color temperature, shadows,
+   perspective, depth of field… Output a single photorealistic image."
+
+→ packed with the photo into a two-part message:
+  [ { type: "text",      text:  &lt;the prompt above&gt; },
+    { type: "image_url", image: { url: &lt;photo data URL&gt; } } ]</pre>
+      </div>
+    </div>
+
+    <div class="warrow">
+      <span class="wline"></span>
+      <span class="wlbl">HTTPS POST → openrouter.ai /v1/chat/completions  ·  Bearer sk-or-… (server-side only)  ·  120 s timeout</span>
+    </div>
+
+    <!-- STAGE 3: SENT TO THE AI -->
+    <div class="fstep" style="border-left: 3px solid var(--accent-2);">
+      <div class="fnum" style="background: linear-gradient(135deg, #a855f7, #c084fc);">3</div>
+      <div style="flex: 1; min-width: 0;">
+        <span class="stage-tag st-ai">Sent to the AI 🤖</span>
+        <b>Gemini receives the prompt + the person's photo</b>
+        <pre>{
+  "model": "google/gemini-3.1-flash-image",
+  "modalities": ["image", "text"],        ← ask for picture output
+  "messages": [{
+    "role": "user",
+    "content": [
+      { "type": "text",      "text": "&lt;style prompt + identity lock-in&gt;" },
+      { "type": "image_url", "image_url": { "url": "&lt;user's photo, base64&gt;" } }
+    ]
+  }]
+}</pre>
+      </div>
+    </div>
+
+    <div class="warrow">
+      <span class="wline"></span>
+      <span class="wlbl">HTTP 200 ← the generated picture comes back inline as a base64 data URL</span>
+    </div>
+
+    <!-- STAGE 4: WHAT WE GET BACK -->
+    <div class="fstep" style="border-left: 3px solid var(--amber);">
+      <div class="fnum" style="background: linear-gradient(135deg, #f59e0b, #fbbf24);">4</div>
+      <div style="flex: 1; min-width: 0;">
+        <span class="stage-tag st-back">What we get back from the AI 📤</span>
+        <b>The finished image — the same person, now inside the office</b>
+        <pre>choices[0].message:
+  images: [ { image_url: { url: "data:image/png;base64,iVBORw0KGgoAAA…" } } ]
+            ↑ this IS the result: the person re-lit, re-dressed, seated at the desk
+  content: [ short text note ]   ← usually empty; if the model refuses,
+                                   this text becomes the error message</pre>
+      </div>
+    </div>
+
+    <div class="warrow">
+      <span class="wline"></span>
+      <span class="wlbl">route parses message.images[0] → JSON response →  { "ok": true, "image": "data:image/png;base64,…" }</span>
+    </div>
+
+    <!-- STAGE 5: BACK TO THE USER -->
+    <div class="fstep" style="border-left: 3px solid #60a5fa;">
+      <div class="fnum" style="background: linear-gradient(135deg, #3b82f6, #60a5fa);">5</div>
+      <div style="flex: 1; min-width: 0;">
+        <span class="stage-tag" style="color: #93c5fd;">Back to the user ✨</span>
+        <b>Rendered in the Result panel — ready to keep</b>
+        <pre>🖼️ displayed in ResultPanel (same face, brand-new office scene)
+⬇️ "Download"  →  styled-office.png
+📋 "Copy"      →  image copied to clipboard
+🔁 the user can pick another style and generate again — the photo is reused</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="note"><span class="icon">⚠️</span><span>
+    <strong>Failure branches off the same chart:</strong> if the AI answers with text but no image
+    (e.g. a safety refusal), stage 4 has no <code class="inline">images[]</code> and the API returns
+    <code class="inline">upstream_refused</code> with the model's explanation. If OpenRouter itself fails,
+    times out, or is rate-limited, the route maps it to one of the seven error codes in section
+    <a href="#errors">11</a> — the user always sees a friendly message instead of raw JSON.
+  </span></div>
+
+  <h2 id="styles"><span class="num">05</span> Style registry — <code class="inline">src/lib/styles.ts</code></h2>
   <p>
     Styles are <strong>data, not code</strong>. Each entry in the <code class="inline">STYLES</code> array is a
     <code class="inline">StyleDefinition</code>: an <code class="inline">id</code>, display fields
@@ -253,7 +402,7 @@
     valid-style list both <em>derive from this array</em>, so adding an entry is all it takes to ship a new scene.
   </p>
 
-  <h2 id="api-contract"><span class="num">05</span> API contract — <code class="inline">src/lib/api.ts</code></h2>
+  <h2 id="api-contract"><span class="num">06</span> API contract — <code class="inline">src/lib/api.ts</code></h2>
   <p>
     This module is imported by <strong>both</strong> the browser and the server, which is what prevents
     client/server drift:
@@ -265,7 +414,7 @@
     <li><code class="inline">STYLE_IDS</code> — derived from the registry with <code class="inline">STYLES.map(s =&gt; s.id)</code>, so it can never go stale</li>
   </ul>
 
-  <h2 id="route"><span class="num">06</span> API route — <code class="inline">src/app/api/generate/route.ts</code></h2>
+  <h2 id="route"><span class="num">07</span> API route — <code class="inline">src/app/api/generate/route.ts</code></h2>
   <p>The single server endpoint. Its <code class="inline">POST</code> handler runs four gates in order:</p>
   <div class="card">
     <h3 style="margin-top:0;">Gate 1 — rate limit</h3>
@@ -292,7 +441,7 @@
     log the technical detail server-side and return a sanitized message, so env-var names never reach end users.
   </p>
 
-  <h2 id="openrouter"><span class="num">07</span> OpenRouter client — <code class="inline">src/lib/openrouter.ts</code></h2>
+  <h2 id="openrouter"><span class="num">08</span> OpenRouter client — <code class="inline">src/lib/openrouter.ts</code></h2>
   <p>
     A dependency-free <code class="inline">fetch</code> wrapper (no SDK needed). Everything it does is visible in one function,
     <code class="inline">generateStyledImage()</code>:
@@ -323,7 +472,7 @@
     <li><strong>No-image responses</strong>: if the model answers with text but no image (usually a content refusal), the note is surfaced so the user knows <em>why</em>.</li>
   </ul>
 
-  <h2 id="ratelimit"><span class="num">08</span> Rate limiting — <code class="inline">src/lib/rate-limit.ts</code></h2>
+  <h2 id="ratelimit"><span class="num">09</span> Rate limiting — <code class="inline">src/lib/rate-limit.ts</code></h2>
   <p>
     A fixed-window limiter: per client, at most <code class="inline">RATE_LIMIT_MAX_REQUESTS</code> (8) accepted
     requests per <code class="inline">RATE_LIMIT_WINDOW_MS</code> (60&nbsp;s). Timestamps live in a
@@ -335,7 +484,7 @@
     so swapping the internals for Redis or an edge limiter when scaling horizontally is a one-file change.
   </p>
 
-  <h2 id="image-client"><span class="num">09</span> Browser image prep — <code class="inline">src/lib/image-client.ts</code></h2>
+  <h2 id="image-client"><span class="num">10</span> Browser image prep — <code class="inline">src/lib/image-client.ts</code></h2>
   <p>
     The browser does the heavy lifting <em>before</em> any bytes hit the network:
   </p>
@@ -350,7 +499,7 @@
     which powers the result's Download button.
   </p>
 
-  <h2 id="ui"><span class="num">10</span> UI components</h2>
+  <h2 id="ui"><span class="num">11</span> UI components</h2>
   <div class="grid2">
     <div class="card">
       <div class="filehead"><code class="path">components/ImageStudio.tsx</code><span class="tag client">client</span></div>
@@ -386,7 +535,7 @@
     The ambient page glow and shimmer keyframes live in <code class="inline">globals.css</code> (Tailwind v4 theme).
   </div>
 
-  <h2 id="errors"><span class="num">11</span> Error handling map</h2>
+  <h2 id="errors"><span class="num">12</span> Error handling map</h2>
   <p>Every failure becomes one of seven stable codes, shared by both sides through <code class="inline">api.ts</code>:</p>
   <table>
     <tr><th>Code</th><th>HTTP</th><th>When it happens</th><th>User sees</th></tr>
@@ -405,7 +554,7 @@
     <code class="inline">Permissions-Policy</code> that disables camera/mic/geolocation.
   </span></div>
 
-  <h2 id="extend"><span class="num">12</span> How to add a new style</h2>
+  <h2 id="extend"><span class="num">13</span> How to add a new style</h2>
   <p>No UI or API changes are needed — append one object to <code class="inline">STYLES</code> in <code class="inline">src/lib/styles.ts</code>:</p>
   <pre>{
   <span class="n">id</span>: <span class="s">"gym"</span>,                      <span class="c">// stable, unique, used in the API</span>
@@ -420,7 +569,7 @@
     (derived), the "Generate … scene" button label, and the download filename.
   </p>
 
-  <h2 id="run"><span class="num">13</span> Running &amp; deploying</h2>
+  <h2 id="run"><span class="num">14</span> Running &amp; deploying</h2>
   <pre><span class="c"># local development</span>
 npm install
 cp .env.example .env.local    <span class="c"># set OPENROUTER_API_KEY=sk-or-...</span>
