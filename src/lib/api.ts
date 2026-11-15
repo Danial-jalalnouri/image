@@ -3,10 +3,12 @@
  * Keeping this in one place prevents client/server drift.
  */
 
+import { SPEND_LIMITS, type UsageSnapshot } from "./limits";
 import { STYLES } from "./styles";
 
 /** Re-exported so consumers can import everything API-related from one module. */
 export { MAX_IMAGE_BYTES, MAX_REQUEST_BODY_BYTES } from "./constants";
+export { SPEND_LIMITS, type UsageSnapshot };
 
 /** Accepted image MIME types (mirrored on client upload validation). */
 export const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
@@ -21,8 +23,8 @@ export type GenerateRequest = {
 };
 
 export type GenerateResponse =
-  | { ok: true; image: string; note?: string }
-  | { ok: false; error: string; code: ErrorCode };
+  | { ok: true; image: string; note?: string; usage?: UsageSnapshot }
+  | { ok: false; error: string; code: ErrorCode; usage?: UsageSnapshot };
 
 export const ERROR_CODES = [
   "unauthorized",
@@ -30,6 +32,7 @@ export const ERROR_CODES = [
   "too_large",
   "rate_limited",
   "access_pending",
+  "budget_exhausted",
   "not_configured",
   "upstream_error",
   "upstream_refused",

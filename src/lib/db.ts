@@ -9,6 +9,8 @@
 
 import { neon } from "@neondatabase/serverless";
 
+import type { UsageSnapshot } from "./limits";
+
 /** Server-side user record as stored in Postgres. */
 export type DbUser = {
   clerkUserId: string;
@@ -118,4 +120,38 @@ export async function setApproval(clerkUserId: string, approved: boolean): Promi
 export async function setRole(clerkUserId: string, role: "admin" | "member"): Promise<PublicUser | null> {
   const result = await query`UPDATE users SET role = ${role} WHERE clerk_user_id = ${clerkUserId} RETURNING *`;
   return result[0] ? toPublicUser(toDbUser(result[0])) : null;
+}
+
+/**
+ * How much the user has spent, per limit window.
+ * Windows are calendar-based in UTC: `daily` since midnight UTC,
+ * `weekly` since Monday 00:00 UTC, `total` over all time.
+ */
+export async function getSpendSummary(clerkUserId: string): Promise<UsageSnapshot> {
+  const result = await query`
+    SELECT
+      COALESCE(SUM(cost_usd) FILTER (WHERE created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'), 0)::float8 AS daily_used,
+      COALESCE(SUM(cost_usd) FILTER (WHERE created_at >= date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'), 0)::float8 AS weekly_used,
+      COALESCE(SUM(cost_usd), 0)::float8 AS total_used
+    FROM generations
+    WHERE clerk_user_id = ${clerkUserId}
+  `;
+  const row = result[0] ?? {};
+  return {
+    dailyUsed: Number(row.daily_used ?? 0),
+    weeklyUsed: Number(row.weekly_used ?? 0),
+    totalUsed: Number(row.total_used ?? 0),
+  };
+}
+
+/** Record one billed generation. Call only after a successful upstream result. */
+export async function logGeneration(params: {
+  clerkUserId: string;
+  styleId: string;
+  costUsd: number;
+}): Promise<void> {
+  await query`
+    INSERT INTO generations (clerk_user_id, style_id, cost_usd)
+    VALUES (${params.clerkUserId}, ${params.styleId}, ${params.costUsd})
+  `;
 }

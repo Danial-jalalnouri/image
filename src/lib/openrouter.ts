@@ -18,6 +18,8 @@ export interface GenerationResult {
   image: string;
   /** Any commentary the model returned alongside the image. */
   note?: string;
+  /** Exact USD cost reported by OpenRouter, when usage accounting is available. */
+  costUsd?: number;
 }
 
 /** Structured error thrown by the client, mapped to API error codes upstream. */
@@ -44,6 +46,10 @@ interface ChatCompletionResponse {
     };
     finish_reason?: string;
   }>;
+  usage?: {
+    cost?: number;
+    total_cost?: number;
+  };
   error?: { message?: string; code?: number | string };
 }
 
@@ -96,6 +102,8 @@ export async function generateStyledImage({
         model,
         // Ask for image output in addition to text.
         modalities: ["image", "text"],
+        // Ask OpenRouter to bill and report the exact cost of this call.
+        usage: { include: true },
         messages: [
           {
             role: "user",
@@ -161,7 +169,14 @@ export async function generateStyledImage({
     );
   }
 
-  return { image: imageUrl, note: extractText(message?.content) ?? undefined };
+  const costUsd =
+    typeof payload.usage?.cost === "number"
+      ? payload.usage.cost
+      : typeof payload.usage?.total_cost === "number"
+        ? payload.usage.total_cost
+        : undefined;
+
+  return { image: imageUrl, note: extractText(message?.content) ?? undefined, costUsd };
 }
 
 function mapUpstreamError(

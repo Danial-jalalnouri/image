@@ -2,8 +2,9 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
-import { ERROR_CODES, MAX_IMAGE_BYTES, MAX_REQUEST_BODY_BYTES, STYLE_IDS, type ErrorCode, type GenerateResponse } from "@/lib/api";
-import { ensureUser } from "@/lib/db";
+import { ERROR_CODES, MAX_IMAGE_BYTES, MAX_REQUEST_BODY_BYTES, STYLE_IDS, type ErrorCode, type GenerateResponse, type UsageSnapshot } from "@/lib/api";
+import { ensureUser, getSpendSummary, logGeneration } from "@/lib/db";
+import { ESTIMATED_COST_PER_GENERATION, budgetMessage, findHitLimit } from "@/lib/limits";
 import { clientKey, checkRateLimit } from "@/lib/rate-limit";
 import { OpenRouterError, generateStyledImage } from "@/lib/openrouter";
 import { getStyle } from "@/lib/styles";
@@ -35,8 +36,14 @@ function base64ToBytes(base64: string): number {
   return Math.max(0, Math.floor((compact.length * 3) / 4) - padding);
 }
 
-function errorResponse(code: ErrorCode, message: string, status: number, headers?: HeadersInit) {
-  const body: GenerateResponse = { ok: false, error: message, code };
+function errorResponse(
+  code: ErrorCode,
+  message: string,
+  status: number,
+  headers?: HeadersInit,
+  usage?: UsageSnapshot,
+) {
+  const body: GenerateResponse = usage ? { ok: false, error: message, code, usage } : { ok: false, error: message, code };
   return NextResponse.json(body, { status, headers });
 }
 
@@ -73,6 +80,21 @@ export async function POST(request: NextRequest) {
       "Your account is pending approval. Please ask an admin to grant you access.",
       403,
     );
+  }
+
+  // --- Budget limits (Neon) -------------------------------------------------
+  // Per-user spend caps: $1/day, $2/week, $3 lifetime. Checked before any
+  // upstream call so an exhausted budget never costs money.
+  let usage: UsageSnapshot;
+  try {
+    usage = await getSpendSummary(userId);
+  } catch (error) {
+    console.error("[generate] Usage lookup failed:", error);
+    return errorResponse("upstream_error", "Could not check your usage limits. Please try again.", 500);
+  }
+  const hitLimit = findHitLimit(usage);
+  if (hitLimit) {
+    return errorResponse("budget_exhausted", budgetMessage(hitLimit), 429, undefined, usage);
   }
 
   // --- Rate limiting -------------------------------------------------------
@@ -117,10 +139,29 @@ export async function POST(request: NextRequest) {
       signal: request.signal,
     });
 
+    // Account for the spend so limits stay accurate. Falls back to a
+    // conservative estimate when OpenRouter does not report an exact cost.
+    const costUsd = result.costUsd ?? ESTIMATED_COST_PER_GENERATION;
+    try {
+      await logGeneration({ clerkUserId: userId, styleId: parsed.data.styleId, costUsd });
+    } catch (logError) {
+      // Never fail a successful generation over bookkeeping.
+      console.error("[generate] Failed to log usage:", logError);
+    }
+
+    // Refresh so the client can show post-generation usage immediately.
+    let usageAfter = usage;
+    try {
+      usageAfter = await getSpendSummary(userId);
+    } catch (refreshError) {
+      console.error("[generate] Usage refresh failed:", refreshError);
+    }
+
     const body: GenerateResponse = {
       ok: true,
       image: result.image,
       note: result.note,
+      usage: usageAfter,
     };
     return NextResponse.json(body);
   } catch (error) {
@@ -151,6 +192,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   too_large: 413,
   rate_limited: 429,
   access_pending: 403,
+  budget_exhausted: 429,
   not_configured: 503,
   upstream_error: 502,
   upstream_refused: 502,
