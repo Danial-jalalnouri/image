@@ -32,10 +32,11 @@ New users cannot generate images until an admin approves them.
 - **Auto-provisioning**: the first time a signed-in user is seen, `GET /api/me` (and
   `POST /api/generate`) inserts them as a **pending member**. The studio shows an
   "ask an admin for access" banner with a recheck button until they are approved.
-- **Admin panel**: users with `role = 'admin'` get an in-app panel (approve / revoke,
-  make admin / remove admin) backed by `GET|PATCH /api/admin/users`. Admin rights are
-  checked against the database on every admin request. Admins cannot revoke their own
-  access or demote themselves.
+- **Admin page**: users with `role = 'admin'` get a dedicated `/admin` page (linked from the
+  header) to approve / revoke access and make / remove admins, backed by
+  `GET|PATCH /api/admin/users`. Admin rights are checked against the database on every
+  admin request, and non-admins who visit `/admin` see an "Admin access required" notice.
+  Admins cannot revoke their own access or demote themselves.
 - **Enforcement**: `POST /api/generate` rejects non-approved users with
   `403 access_pending` — "Please ask an admin to grant you access."
 
@@ -104,6 +105,7 @@ src/
     api/me/route.ts         # access status + usage for the signed-in user
     api/admin/users/route.ts# admin-only list/approve/revoke/role management
     api/styles/route.ts     # public styles registry (also feeds the docs page)
+    admin/page.tsx          # admin-only user management page (/admin)
     layout.tsx / page.tsx   # shell + marketing header
     globals.css             # Tailwind v4 theme, dark studio look
   components/
@@ -112,7 +114,8 @@ src/
     StylePicker.tsx         # style cards (data-driven)
     ResultPanel.tsx         # result, download, error states
     UsageMeter.tsx          # daily/weekly/lifetime spend bars
-    AdminUsersPanel.tsx     # admin-only user management
+    AdminUsers.tsx          # /admin page content (user list + actions)
+    AdminNavLink.tsx        # header link, shown only to admins
   lib/
     styles.ts               # style registry (prompts live here)
     api.ts                  # shared client/server API contract
