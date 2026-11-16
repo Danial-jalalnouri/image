@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireAdmin } from "@/lib/admin";
 import { getImageModel, getLimits, setImageModel, setLimits } from "@/lib/db";
+import { validateImageModelId } from "@/lib/openrouter";
 
 /** GET /api/admin/settings — the current spend limits and image model. */
 export async function GET() {
@@ -61,6 +62,12 @@ export async function PATCH(request: NextRequest) {
     if (!parsed.success) {
       const message = parsed.error.issues[0]?.message ?? "Invalid model id.";
       return NextResponse.json({ ok: false, error: message, code: "bad_request" }, { status: 400 });
+    }
+    // Reject models that can't edit photos (or don't exist) before they break
+    // every generation. Never blocks when OpenRouter's catalog is unreachable.
+    const problem = await validateImageModelId(parsed.data);
+    if (problem) {
+      return NextResponse.json({ ok: false, error: problem, code: "bad_request" }, { status: 400 });
     }
     try {
       const imageModel = await setImageModel(parsed.data);

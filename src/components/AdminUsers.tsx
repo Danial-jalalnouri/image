@@ -305,11 +305,29 @@ function ModelEditor({ model, onSaved }: { model: string; onSaved: (model: strin
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [suggestions, setSuggestions] = useState<Array<{ id: string; name: string }>>([]);
 
   // Re-sync whenever fresh values arrive (load, refresh, save).
   useEffect(() => {
     setValue(model);
   }, [model]);
+
+  // Compatible-model suggestions (photo in → image out). Optional nicety —
+  // the card works fine as free-text if OpenRouter is unreachable.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const response = await fetch("/api/admin/models");
+        const payload = (await response.json()) as {
+          ok: boolean;
+          models?: Array<{ id: string; name: string }>;
+        };
+        if (payload.ok) setSuggestions(payload.models ?? []);
+      } catch {
+        // suggestions are optional
+      }
+    })();
+  }, []);
 
   const dirty = value.trim() !== model;
 
@@ -359,6 +377,7 @@ function ModelEditor({ model, onSaved }: { model: string; onSaved: (model: strin
           <input
             type="text"
             spellCheck={false}
+            list="image-edit-model-options"
             value={value}
             onChange={(event) => {
               setValue(event.target.value);
@@ -366,8 +385,17 @@ function ModelEditor({ model, onSaved }: { model: string; onSaved: (model: strin
             }}
             className="mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-sm text-zinc-100 outline-none transition focus:border-indigo-400/50"
           />
+          <datalist id="image-edit-model-options">
+            {suggestions.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </datalist>
           <p className="mt-1 text-[11px] text-zinc-600">
-            Default: <span className="font-mono">google/gemini-3.1-flash-image</span>
+            Must be an <span className="text-zinc-400">image-editing</span> model — accepts the user&apos;s
+            photo and returns an image (e.g. <span className="font-mono">google/gemini-3.1-flash-image</span>).
+            Start typing for suggestions; pure text-to-image models are rejected when saving.
           </p>
         </label>
       </div>

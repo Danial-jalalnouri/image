@@ -82,6 +82,16 @@ page ("Image model" card). It applies to every generation from the next
 request onward. `DEFAULT_MODEL` in `src/lib/constants.ts` only seeds/falls
 back when the setting is missing or unreadable.
 
+**Compatibility:** this app *edits* a photo — the user's photo is sent with the
+prompt through `chat/completions` (`modalities: ["image","text"]`), so the model
+must accept image **input** and return image **output** (the Gemini "Nano
+Banana" family, GPT-5 image, …). Pure text-to-image models (served on OpenRouter's
+`/api/v1/images` endpoint, e.g. Tencent Hunyuan Image) cannot receive the photo and
+are rejected at save time using OpenRouter's public model catalog (cached 10 min,
+fail-open when unreachable); the card also suggests compatible ids. If an
+incompatible or unknown id still reaches generation, the error is mapped to a
+clear "admin needs to pick an image-editing model" message.
+
 ## Authentication
 
 - **Provider**: Clerk, application `image` (dev instance). Configure providers with
@@ -134,6 +144,7 @@ src/
     api/me/route.ts         # access status + usage + limits for the signed-in user
     api/admin/users/route.ts# admin-only list/approve/revoke/role management
     api/admin/settings/route.ts # admin-only spend-limit + image-model get/update
+    api/admin/models/route.ts   # admin-only compatible-image-editing-model suggestions
     api/admin/styles/route.ts + [id]/route.ts # admin-only style CRUD
     api/styles/route.ts     # public enabled-styles registry (also feeds the docs page)
     admin/page.tsx          # admin-only user management page (/admin)

@@ -665,7 +665,7 @@ prompt = scenePrompt + IDENTITY_PRESERVATION</pre>
 })</pre>
   <p>Key behaviors:</p>
   <ul style="margin: 8px 24px 8px 0; padding-left: 22px; color: var(--muted);">
-    <li><strong>Model selection</strong> comes from the database's <code class="inline">settings</code> table (key <code class="inline">image_model</code>, default <code class="inline">google/gemini-3.1-flash-image</code> aka Nano Banana 2) — admins change it at <code class="inline">/admin</code>, no deploy needed. Useful for switching to newer models as they appear.</li>
+    <li><strong>Model selection</strong> comes from the database's <code class="inline">settings</code> table (key <code class="inline">image_model</code>, default <code class="inline">google/gemini-3.1-flash-image</code> aka Nano Banana 2) — admins change it at <code class="inline">/admin</code>, no deploy needed. The app <em>edits</em> a photo, so the model must accept image input and return image output over <code class="inline">chat/completions</code>; the admin card validates ids against OpenRouter's public catalog and rejects text-to-image-only models (they're served on <code class="inline">/api/v1/images</code> and can't receive the photo).</li>
     <li><strong>Timeout &amp; cancellation</strong>: both the caller's signal and a 120&nbsp;s deadline are combined; races are caught and re-thrown as typed errors (<code class="inline">timeout</code>, <code class="inline">upstream_error</code>).</li>
     <li><strong>Typed failures</strong>: every failure path throws <code class="inline">OpenRouterError</code> carrying a machine-readable <code class="inline">code</code> and a user-safe <code class="inline">message</code>. Upstream 401/402/403 → <code class="inline">not_configured</code>, 429 → <code class="inline">rate_limited</code>, and so on.</li>
     <li><strong>No-image responses</strong>: if the model answers with text but no image (usually a content refusal), the note is surfaced so the user knows <em>why</em>.</li>
@@ -745,7 +745,7 @@ prompt = scenePrompt + IDENTITY_PRESERVATION</pre>
     <tr><td><code>access_pending</code></td><td><span class="pill warn">403</span></td><td>Signed in but not yet approved by an admin</td><td>"Ask an admin to grant you access."</td></tr>
     <tr><td><code>budget_exhausted</code></td><td><span class="pill warn">429</span></td><td>Daily/weekly/lifetime spend limit reached (checked before any upstream call)</td><td>Which limit, its value, and when it resets</td></tr>
     <tr><td><code>not_configured</code></td><td><span class="pill err">503</span></td><td>Missing/invalid API key or out of credits</td><td>Sanitized message; detail only in server logs</td></tr>
-    <tr><td><code>upstream_error</code></td><td><span class="pill err">502</span></td><td>OpenRouter unreachable or 5xx</td><td>"Something went wrong…"</td></tr>
+    <tr><td><code>upstream_error</code></td><td><span class="pill err">502</span></td><td>OpenRouter unreachable, 5xx, or a configured model that can't edit photos (text-to-image-only / unknown id)</td><td>"Something went wrong…" — or an explicit "pick an image-editing model" hint</td></tr>
     <tr><td><code>upstream_refused</code></td><td><span class="pill err">502</span></td><td>Model answered with text, no image (e.g. safety refusal)</td><td>The model's own explanation</td></tr>
     <tr><td><code>timeout</code></td><td><span class="pill warn">504</span></td><td>Upstream exceeded 120&nbsp;s</td><td>"Generation timed out…"</td></tr>
   </table>
