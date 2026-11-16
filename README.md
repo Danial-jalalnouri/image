@@ -33,10 +33,11 @@ New users cannot generate images until an admin approves them.
   `POST /api/generate`) inserts them as a **pending member**. The studio shows an
   "ask an admin for access" banner with a recheck button until they are approved.
 - **Admin page**: users with `role = 'admin'` get a dedicated `/admin` page (linked from the
-  header) to approve / revoke access and make / remove admins, backed by
-  `GET|PATCH /api/admin/users`. Admin rights are checked against the database on every
-  admin request, and non-admins who visit `/admin` see an "Admin access required" notice.
-  Admins cannot revoke their own access or demote themselves.
+  header) showing global API usage (dollars + generation count per day/week/all-time, same
+  UTC windows as the spend limits) and user management — approve / revoke, make admin /
+  remove admin — backed by `GET|PATCH /api/admin/users`. Admin rights are checked against
+  the database on every admin request, and non-admins who visit `/admin` see an
+  "Admin access required" notice. Admins cannot revoke their own access or demote themselves.
 - **Enforcement**: `POST /api/generate` rejects non-approved users with
   `403 access_pending` — "Please ask an admin to grant you access."
 

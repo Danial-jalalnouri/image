@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { formatUsd, type GlobalUsage } from "@/lib/limits";
+
 type AdminUser = {
   clerkUserId: string;
   email: string;
@@ -10,7 +12,9 @@ type AdminUser = {
   approved: boolean;
 };
 
-type ListResponse = { ok: true; users: AdminUser[] } | { ok: false; error: string; code: string };
+type ListResponse =
+  | { ok: true; users: AdminUser[]; usage?: GlobalUsage }
+  | { ok: false; error: string; code: string };
 type PatchResponse = { ok: true; user: AdminUser } | { ok: false; error: string; code: string };
 type MeResponse =
   | { ok: true; access: boolean; role: "admin" | "member"; email: string; fullName: string | null }
@@ -26,6 +30,7 @@ type Action = "approve" | "revoke" | "makeAdmin" | "removeAdmin";
 export function AdminUsers() {
   const [roleState, setRoleState] = useState<"checking" | "member" | "admin">("checking");
   const [users, setUsers] = useState<AdminUser[] | null>(null);
+  const [usage, setUsage] = useState<GlobalUsage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -39,6 +44,7 @@ export function AdminUsers() {
         return;
       }
       setUsers(payload.users);
+      setUsage(payload.usage ?? null);
     } catch {
       setError("Could not load users. Is the database configured?");
     }
@@ -111,14 +117,14 @@ export function AdminUsers() {
     <div className="mx-auto w-full max-w-4xl">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-50">Admin · Users</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-50">Admin</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Approve access and manage roles. Every user starts pending until you approve them.
+            API usage and user access at a glance. Every user starts pending until you approve them.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-zinc-400">
-            {users ? `${users.length} total` : "…"}
+            {users ? `${users.length} users` : "…"}
           </span>
           <button
             type="button"
@@ -135,6 +141,8 @@ export function AdminUsers() {
           {error}
         </p>
       )}
+
+      {usage && <GlobalUsageCard usage={usage} />}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <UserGroup
@@ -155,6 +163,38 @@ export function AdminUsers() {
         />
       </div>
     </div>
+  );
+}
+
+/** All-user API usage for the same UTC windows the spend limits use. */
+function GlobalUsageCard({ usage }: { usage: GlobalUsage }) {
+  const rows: Array<{ label: string; win: { used: number; count: number }; note: string }> = [
+    { label: "Today", win: usage.daily, note: "resets midnight UTC" },
+    { label: "This week", win: usage.weekly, note: "resets Monday UTC" },
+    { label: "All time", win: usage.total, note: "since launch" },
+  ];
+
+  return (
+    <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+      <div className="mb-4 flex items-center gap-2.5">
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-500/15 text-[11px] font-bold text-indigo-300">
+          $
+        </span>
+        <h2 className="text-sm font-semibold text-zinc-200">API usage · all users</h2>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        {rows.map((row) => (
+          <div key={row.label} className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+            <p className="text-xs font-medium text-zinc-400">{row.label}</p>
+            <p className="mt-1 text-2xl font-bold tracking-tight text-zinc-50">{formatUsd(row.win.used)}</p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {row.win.count} {row.win.count === 1 ? "generation" : "generations"}
+            </p>
+            <p className="mt-1 text-[11px] text-zinc-600">{row.note}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

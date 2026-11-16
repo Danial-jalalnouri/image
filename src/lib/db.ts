@@ -9,7 +9,7 @@
 
 import { neon } from "@neondatabase/serverless";
 
-import type { UsageSnapshot } from "./limits";
+import type { GlobalUsage, UsageSnapshot } from "./limits";
 
 /** Server-side user record as stored in Postgres. */
 export type DbUser = {
@@ -154,4 +154,27 @@ export async function logGeneration(params: {
     INSERT INTO generations (clerk_user_id, style_id, cost_usd)
     VALUES (${params.clerkUserId}, ${params.styleId}, ${params.costUsd})
   `;
+}
+
+/**
+ * Global usage across all users, per limit window (same UTC calendar
+ * windows as getSpendSummary): dollars billed and generation count.
+ */
+export async function getGlobalUsage(): Promise<GlobalUsage> {
+  const result = await query`
+    SELECT
+      COALESCE(SUM(cost_usd) FILTER (WHERE created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'), 0)::float8 AS daily_used,
+      COUNT(*) FILTER (WHERE created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')::int AS daily_count,
+      COALESCE(SUM(cost_usd) FILTER (WHERE created_at >= date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'), 0)::float8 AS weekly_used,
+      COUNT(*) FILTER (WHERE created_at >= date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')::int AS weekly_count,
+      COALESCE(SUM(cost_usd), 0)::float8 AS total_used,
+      COUNT(*)::int AS total_count
+    FROM generations
+  `;
+  const row = result[0] ?? {};
+  return {
+    daily: { used: Number(row.daily_used ?? 0), count: Number(row.daily_count ?? 0) },
+    weekly: { used: Number(row.weekly_used ?? 0), count: Number(row.weekly_count ?? 0) },
+    total: { used: Number(row.total_used ?? 0), count: Number(row.total_count ?? 0) },
+  };
 }

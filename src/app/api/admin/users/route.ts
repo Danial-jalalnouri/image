@@ -2,7 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
-import { getUser, listUsers, setApproval, setRole } from "@/lib/db";
+import { getUser, getGlobalUsage, listUsers, setApproval, setRole } from "@/lib/db";
 
 /** Admin-only guard: the caller must exist in the DB with role = 'admin'. */
 async function requireAdmin() {
@@ -23,14 +23,15 @@ async function requireAdmin() {
   return { userId };
 }
 
-/** GET /api/admin/users — list every user for the admin panel. */
+/** GET /api/admin/users — list every user plus global API usage for the admin page. */
 export async function GET() {
   const guard = await requireAdmin();
   if (guard.error) return guard.error;
 
   try {
     const users = await listUsers();
-    return NextResponse.json({ ok: true, users });
+    const usage = await getGlobalUsage();
+    return NextResponse.json({ ok: true, users, usage });
   } catch (error) {
     console.error("[admin/users] Database error:", error);
     return NextResponse.json({ ok: false, error: "Could not load users.", code: "upstream_error" }, { status: 500 });

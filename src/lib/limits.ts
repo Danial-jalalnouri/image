@@ -26,6 +26,19 @@ export type UsageSnapshot = {
   totalUsed: number;
 };
 
+/** Billed usage of the whole API within one window (all users combined). */
+export type UsageWindow = {
+  used: number;
+  count: number;
+};
+
+/** Global (all-user) usage per window, for the admin page. */
+export type GlobalUsage = {
+  daily: UsageWindow;
+  weekly: UsageWindow;
+  total: UsageWindow;
+};
+
 /**
  * Cost recorded per generation when OpenRouter does not report the exact
  * price. Deliberately generous (~2x a typical generation) so missing
