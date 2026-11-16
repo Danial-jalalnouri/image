@@ -7,11 +7,11 @@ import { StylePicker } from "./StylePicker";
 import { ResultPanel } from "./ResultPanel";
 import { UsageMeter } from "./UsageMeter";
 import { DEFAULT_STYLE_ID, getStyle } from "@/lib/styles";
-import type { GenerateResponse, UsageSnapshot } from "@/lib/api";
+import { DEFAULT_SPEND_LIMITS, type GenerateResponse, type LimitSet, type UsageSnapshot } from "@/lib/api";
 
 type Status = "idle" | "generating" | "done" | "error";
 type MeResponse =
-  | { ok: true; access: boolean; role: "admin" | "member"; email: string; fullName: string | null; usage?: UsageSnapshot }
+  | { ok: true; access: boolean; role: "admin" | "member"; email: string; fullName: string | null; usage?: UsageSnapshot; limits?: LimitSet }
   | { ok: false; error: string; code: string };
 
 export function ImageStudio() {
@@ -22,11 +22,12 @@ export function ImageStudio() {
   const [error, setError] = useState<string | null>(null);
   const [me, setMe] = useState<Extract<MeResponse, { ok: true }> | null>(null);
   const [usage, setUsage] = useState<UsageSnapshot | null>(null);
+  const [limits, setLimits] = useState<LimitSet>(DEFAULT_SPEND_LIMITS);
   const [accessState, setAccessState] = useState<"checking" | "denied" | "granted">("checking");
 
   // Ask the server whether this account may generate. First-time users are
   // auto-provisioned as pending and must ask an admin for access. Also
-  // returns the current spend against the daily/weekly/lifetime limits.
+  // returns spend usage and the current (admin-editable) limits.
   const checkAccess = useCallback(async () => {
     try {
       const response = await fetch("/api/me");
@@ -37,6 +38,7 @@ export function ImageStudio() {
       }
       setMe(payload);
       setUsage(payload.usage ?? null);
+      setLimits(payload.limits ?? DEFAULT_SPEND_LIMITS);
       setAccessState(payload.access ? "granted" : "denied");
     } catch {
       setAccessState("denied");
@@ -79,9 +81,10 @@ export function ImageStudio() {
         if (payload.ok === false && payload.code === "access_pending") {
           setAccessState("denied");
         }
-        // Keep the usage meter accurate after a limit is hit.
-        if (payload.ok === false && payload.usage) {
-          setUsage(payload.usage);
+        // Keep the meter accurate after a limit is hit (limits may have changed).
+        if (payload.ok === false) {
+          if (payload.usage) setUsage(payload.usage);
+          if (payload.limits) setLimits(payload.limits);
         }
         return;
       }
@@ -90,6 +93,9 @@ export function ImageStudio() {
       setStatus("done");
       if (payload.usage) {
         setUsage(payload.usage);
+      }
+      if (payload.limits) {
+        setLimits(payload.limits);
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -147,7 +153,7 @@ export function ImageStudio() {
           )}
         </button>
 
-        <UsageMeter usage={usage} />
+        <UsageMeter usage={usage} limits={limits} />
       </div>
 
       {/* Right: result */}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { formatUsd, type GlobalUsage } from "@/lib/limits";
+import { formatUsd, type GlobalUsage, type LimitSet } from "@/lib/limits";
 
 type AdminUser = {
   clerkUserId: string;
@@ -13,7 +13,7 @@ type AdminUser = {
 };
 
 type ListResponse =
-  | { ok: true; users: AdminUser[]; usage?: GlobalUsage }
+  | { ok: true; users: AdminUser[]; usage?: GlobalUsage; limits?: LimitSet }
   | { ok: false; error: string; code: string };
 type PatchResponse = { ok: true; user: AdminUser } | { ok: false; error: string; code: string };
 type MeResponse =
@@ -31,6 +31,7 @@ export function AdminUsers() {
   const [roleState, setRoleState] = useState<"checking" | "member" | "admin">("checking");
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [usage, setUsage] = useState<GlobalUsage | null>(null);
+  const [limits, setLimits] = useState<LimitSet | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -45,6 +46,7 @@ export function AdminUsers() {
       }
       setUsers(payload.users);
       setUsage(payload.usage ?? null);
+      setLimits(payload.limits ?? null);
     } catch {
       setError("Could not load users. Is the database configured?");
     }
@@ -143,6 +145,7 @@ export function AdminUsers() {
       )}
 
       {usage && <GlobalUsageCard usage={usage} />}
+      {limits && <LimitsEditor limits={limits} onSaved={setLimits} />}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <UserGroup
@@ -166,9 +169,132 @@ export function AdminUsers() {
   );
 }
 
+/**
+ * Editable per-user spend limits, persisted in the settings table.
+ * Changes apply to every user on their next generation attempt.
+ */
+function LimitsEditor({ limits, onSaved }: { limits: LimitSet; onSaved: (limits: LimitSet) => void }) {
+  const [daily, setDaily] = useState(String(limits.daily));
+  const [weekly, setWeekly] = useState(String(limits.weekly));
+  const [total, setTotal] = useState(String(limits.total));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  // Re-sync the fields whenever fresh values arrive (load, refresh, save).
+  useEffect(() => {
+    setDaily(String(limits.daily));
+    setWeekly(String(limits.weekly));
+    setTotal(String(limits.total));
+  }, [limits]);
+
+  const dirty =
+    Number(daily) !== limits.daily || Number(weekly) !== limits.weekly || Number(total) !== limits.total;
+
+  const save = async () => {
+    const body = { daily: Number(daily), weekly: Number(weekly), total: Number(total) };
+    if (![body.daily, body.weekly, body.total].every((v) => Number.isFinite(v) && v >= 0)) {
+      setError("Please enter non-negative numbers.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const response = await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = (await response.json()) as
+        | { ok: true; limits: LimitSet }
+        | { ok: false; error: string; code: string };
+      if (!payload.ok) {
+        setError(payload.error);
+        return;
+      }
+      onSaved(payload.limits);
+      setSaved(true);
+    } catch {
+      setError("Network error — please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+      <div className="mb-4 flex items-center gap-2.5">
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-500/15 text-[11px] font-bold text-indigo-300">
+          ⚙
+        </span>
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-200">Spend limits · per user</h2>
+          <p className="mt-0.5 text-xs text-zinc-600">
+            Stored in the settings table and applied to every user immediately.
+          </p>
+        </div>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <LimitField label="Daily" value={daily} onChange={setDaily} hint="resets midnight UTC" onEdit={() => setSaved(false)} />
+        <LimitField label="Weekly" value={weekly} onChange={setWeekly} hint="resets Monday UTC" onEdit={() => setSaved(false)} />
+        <LimitField label="Lifetime" value={total} onChange={setTotal} hint="never resets" onEdit={() => setSaved(false)} />
+      </div>
+      <div className="mt-4 flex items-center gap-3">
+        <button
+          type="button"
+          disabled={saving || (!dirty && saved)}
+          onClick={() => void save()}
+          className="h-10 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-5 text-sm font-semibold text-white transition hover:from-indigo-400 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {saving ? "Saving…" : "Save limits"}
+        </button>
+        {saved && !dirty && <span className="text-xs font-medium text-emerald-400">Saved ✓</span>}
+        {error && <span className="text-xs text-rose-300">{error}</span>}
+      </div>
+    </section>
+  );
+}
+
+function LimitField({
+  label,
+  value,
+  onChange,
+  hint,
+  onEdit,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  hint: string;
+  onEdit: () => void;
+}) {
+  return (
+    <label className="block rounded-xl border border-white/5 bg-white/[0.02] p-4">
+      <span className="text-xs font-medium text-zinc-400">{label} limit</span>
+      <div className="mt-1.5 flex items-center gap-1">
+        <span className="text-lg font-semibold text-zinc-500">$</span>
+        <input
+          type="number"
+          inputMode="decimal"
+          min="0"
+          max="1000"
+          step="0.01"
+          value={value}
+          onChange={(event) => {
+            onChange(event.target.value);
+            onEdit();
+          }}
+          className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-indigo-400/50"
+        />
+      </div>
+      <p className="mt-1 text-[11px] text-zinc-600">{hint}</p>
+    </label>
+  );
+}
+
 /** All-user API usage for the same UTC windows the spend limits use. */
-function GlobalUsageCard({ usage }: { usage: GlobalUsage }) {
-  const rows: Array<{ label: string; win: { used: number; count: number }; note: string }> = [
+function GlobalUsageCard({ usage }: { usage: GlobalUsage }) {  const rows: Array<{ label: string; win: { used: number; count: number }; note: string }> = [
     { label: "Today", win: usage.daily, note: "resets midnight UTC" },
     { label: "This week", win: usage.weekly, note: "resets Monday UTC" },
     { label: "All time", win: usage.total, note: "since launch" },

@@ -1,8 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-import { ensureUser, getSpendSummary, type PublicUser } from "@/lib/db";
-import type { UsageSnapshot } from "@/lib/limits";
+import { ensureUser, getLimits, getSpendSummary, type PublicUser } from "@/lib/db";
+import type { LimitSet, UsageSnapshot } from "@/lib/limits";
 
 /**
  * Returns the signed-in user's access status.
@@ -33,12 +33,19 @@ export async function GET() {
       fullName: [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ") || null,
     });
 
-    // Usage is best-effort: a billing hiccup should not look like an access denial.
+    // Usage and limits are best-effort: a billing hiccup should not look
+    // like an access denial.
     let usage: UsageSnapshot | undefined;
+    let limits: LimitSet | undefined;
     try {
       usage = await getSpendSummary(userId);
     } catch (usageError) {
       console.error("[me] Usage lookup failed:", usageError);
+    }
+    try {
+      limits = await getLimits();
+    } catch (limitsError) {
+      console.error("[me] Limits lookup failed:", limitsError);
     }
 
     const body: {
@@ -48,6 +55,7 @@ export async function GET() {
       email: string;
       fullName: string | null;
       usage?: UsageSnapshot;
+      limits?: LimitSet;
     } = {
       ok: true,
       access: user.approved,
@@ -55,6 +63,7 @@ export async function GET() {
       email: user.email,
       fullName: user.fullName,
       usage,
+      limits,
     };
     return NextResponse.json(body);
   } catch (error) {

@@ -1,6 +1,11 @@
 /**
  * Per-user spending limits for image generation.
  *
+ * The actual limits live in the Neon `settings` table (`limit_daily`,
+ * `limit_weekly`, `limit_total`) and are editable by admins at /admin.
+ * `DEFAULT_SPEND_LIMITS` below is only the bootstrap value: it seeds the
+ * table and acts as a fallback when a setting is missing or unreadable.
+ *
  * Windows are calendar-based in UTC:
  * - `daily`  resets at midnight UTC
  * - `weekly` resets on Monday 00:00 UTC
@@ -10,14 +15,21 @@
  * so keep this module free of server-only dependencies.
  */
 
-/** Spend limits per user, in US dollars. */
-export const SPEND_LIMITS = {
+/** Editable per-user limits, in US dollars (stored in the settings table). */
+export type LimitSet = {
+  daily: number;
+  weekly: number;
+  total: number;
+};
+
+export type LimitKind = keyof LimitSet;
+
+/** Bootstrap/fallback limits — the DB values take precedence whenever present. */
+export const DEFAULT_SPEND_LIMITS: LimitSet = {
   daily: 1,
   weekly: 2,
   total: 3,
-} as const;
-
-export type LimitKind = keyof typeof SPEND_LIMITS;
+};
 
 /** How much a user has spent, tracked per limit window. */
 export type UsageSnapshot = {
@@ -50,10 +62,10 @@ export const ESTIMATED_COST_PER_GENERATION = 0.01;
  * Returns the strictest limit that has been reached, or null if the user
  * may still generate. `total` wins when several limits are exhausted.
  */
-export function findHitLimit(usage: UsageSnapshot): LimitKind | null {
-  if (usage.totalUsed >= SPEND_LIMITS.total) return "total";
-  if (usage.weeklyUsed >= SPEND_LIMITS.weekly) return "weekly";
-  if (usage.dailyUsed >= SPEND_LIMITS.daily) return "daily";
+export function findHitLimit(usage: UsageSnapshot, limits: LimitSet): LimitKind | null {
+  if (usage.totalUsed >= limits.total) return "total";
+  if (usage.weeklyUsed >= limits.weekly) return "weekly";
+  if (usage.dailyUsed >= limits.daily) return "daily";
   return null;
 }
 
@@ -68,7 +80,7 @@ const RESET_HINT: Record<LimitKind, string> = {
 };
 
 /** User-facing message for an exhausted limit. */
-export function budgetMessage(kind: LimitKind): string {
+export function budgetMessage(kind: LimitKind, limits: LimitSet): string {
   const label = kind === "daily" ? "daily" : kind === "weekly" ? "weekly" : "total";
-  return `You've reached your ${label} spending limit of ${formatUsd(SPEND_LIMITS[kind])}. ${RESET_HINT[kind]}`;
+  return `You've reached your ${label} spending limit of ${formatUsd(limits[kind])}. ${RESET_HINT[kind]}`;
 }

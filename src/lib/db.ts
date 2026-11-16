@@ -9,7 +9,7 @@
 
 import { neon } from "@neondatabase/serverless";
 
-import type { GlobalUsage, UsageSnapshot } from "./limits";
+import { DEFAULT_SPEND_LIMITS, type GlobalUsage, type LimitSet, type UsageSnapshot } from "./limits";
 
 /** Server-side user record as stored in Postgres. */
 export type DbUser = {
@@ -154,6 +154,48 @@ export async function logGeneration(params: {
     INSERT INTO generations (clerk_user_id, style_id, cost_usd)
     VALUES (${params.clerkUserId}, ${params.styleId}, ${params.costUsd})
   `;
+}
+
+/**
+ * The effective spend limits. Values come from the `settings` table
+ * (editable by admins); any missing/invalid key falls back to
+ * DEFAULT_SPEND_LIMITS, so this never throws on partial data.
+ */
+export async function getLimits(): Promise<LimitSet> {
+  const result = await query`SELECT key, value FROM settings WHERE key LIKE 'limit_%'`;
+  const parsed = { ...DEFAULT_SPEND_LIMITS };
+  for (const row of result) {
+    const key = String(row.key);
+    const value = Number(row.value);
+    if (!Number.isFinite(value) || value < 0) continue;
+    if (key === "limit_daily") parsed.daily = value;
+    else if (key === "limit_weekly") parsed.weekly = value;
+    else if (key === "limit_total") parsed.total = value;
+  }
+  return parsed;
+}
+
+/** Persist all three limits (rounded to cents). Returns the stored values. */
+export async function setLimits(limits: LimitSet): Promise<LimitSet> {
+  const round = (value: number) => Number(value.toFixed(2));
+  const result = await query`
+    INSERT INTO settings (key, value)
+    VALUES
+      ('limit_daily', ${round(limits.daily).toFixed(2)}),
+      ('limit_weekly', ${round(limits.weekly).toFixed(2)}),
+      ('limit_total', ${round(limits.total).toFixed(2)})
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+    RETURNING key, value
+  `;
+  const stored = { ...DEFAULT_SPEND_LIMITS };
+  for (const row of result) {
+    const key = String(row.key);
+    const value = Number(row.value);
+    if (key === "limit_daily") stored.daily = value;
+    else if (key === "limit_weekly") stored.weekly = value;
+    else if (key === "limit_total") stored.total = value;
+  }
+  return stored;
 }
 
 /**

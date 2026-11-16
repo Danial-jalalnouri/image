@@ -2,8 +2,8 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
-import { ERROR_CODES, MAX_IMAGE_BYTES, MAX_REQUEST_BODY_BYTES, STYLE_IDS, type ErrorCode, type GenerateResponse, type UsageSnapshot } from "@/lib/api";
-import { ensureUser, getSpendSummary, logGeneration } from "@/lib/db";
+import { ERROR_CODES, MAX_IMAGE_BYTES, MAX_REQUEST_BODY_BYTES, STYLE_IDS, type ErrorCode, type GenerateResponse, type LimitSet, type UsageSnapshot } from "@/lib/api";
+import { ensureUser, getLimits, getSpendSummary, logGeneration } from "@/lib/db";
 import { ESTIMATED_COST_PER_GENERATION, budgetMessage, findHitLimit } from "@/lib/limits";
 import { clientKey, checkRateLimit } from "@/lib/rate-limit";
 import { OpenRouterError, generateStyledImage } from "@/lib/openrouter";
@@ -41,9 +41,9 @@ function errorResponse(
   message: string,
   status: number,
   headers?: HeadersInit,
-  usage?: UsageSnapshot,
+  extra?: { usage?: UsageSnapshot; limits?: LimitSet },
 ) {
-  const body: GenerateResponse = usage ? { ok: false, error: message, code, usage } : { ok: false, error: message, code };
+  const body: GenerateResponse = { ok: false, error: message, code, ...extra };
   return NextResponse.json(body, { status, headers });
 }
 
@@ -83,18 +83,20 @@ export async function POST(request: NextRequest) {
   }
 
   // --- Budget limits (Neon) -------------------------------------------------
-  // Per-user spend caps: $1/day, $2/week, $3 lifetime. Checked before any
-  // upstream call so an exhausted budget never costs money.
+  // Per-user spend caps stored in the settings table (admin-editable).
+  // Checked before any upstream call so an exhausted budget never costs money.
   let usage: UsageSnapshot;
+  let limits: LimitSet;
   try {
     usage = await getSpendSummary(userId);
+    limits = await getLimits();
   } catch (error) {
     console.error("[generate] Usage lookup failed:", error);
     return errorResponse("upstream_error", "Could not check your usage limits. Please try again.", 500);
   }
-  const hitLimit = findHitLimit(usage);
+  const hitLimit = findHitLimit(usage, limits);
   if (hitLimit) {
-    return errorResponse("budget_exhausted", budgetMessage(hitLimit), 429, undefined, usage);
+    return errorResponse("budget_exhausted", budgetMessage(hitLimit, limits), 429, undefined, { usage, limits });
   }
 
   // --- Rate limiting -------------------------------------------------------
@@ -162,6 +164,7 @@ export async function POST(request: NextRequest) {
       image: result.image,
       note: result.note,
       usage: usageAfter,
+      limits,
     };
     return NextResponse.json(body);
   } catch (error) {

@@ -1,18 +1,19 @@
 "use client";
 
-import { SPEND_LIMITS, formatUsd, type UsageSnapshot } from "@/lib/limits";
+import { formatUsd, type LimitSet, type UsageSnapshot } from "@/lib/limits";
 
 /**
  * Shows the signed-in user how much of their spend allowance they have used.
- * Windows match the server-side enforcement exactly (calendar UTC).
+ * Windows match the server-side enforcement exactly (calendar UTC), and the
+ * limits come from the settings table via /api/me (not hard-coded).
  */
-export function UsageMeter({ usage }: { usage: UsageSnapshot | null }) {
+export function UsageMeter({ usage, limits }: { usage: UsageSnapshot | null; limits: LimitSet }) {
   if (!usage) return null;
 
   const rows: Array<{ label: string; used: number; limit: number; note: string }> = [
-    { label: "Today", used: usage.dailyUsed, limit: SPEND_LIMITS.daily, note: "resets midnight UTC" },
-    { label: "This week", used: usage.weeklyUsed, limit: SPEND_LIMITS.weekly, note: "resets Monday UTC" },
-    { label: "All time", used: usage.totalUsed, limit: SPEND_LIMITS.total, note: "lifetime budget" },
+    { label: "Today", used: usage.dailyUsed, limit: limits.daily, note: "resets midnight UTC" },
+    { label: "This week", used: usage.weeklyUsed, limit: limits.weekly, note: "resets Monday UTC" },
+    { label: "All time", used: usage.totalUsed, limit: limits.total, note: "lifetime budget" },
   ];
 
   return (

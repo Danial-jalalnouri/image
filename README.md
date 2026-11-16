@@ -45,21 +45,32 @@ New users cannot generate images until an admin approves them.
 
 Every generation's exact cost is captured from OpenRouter (`usage.cost`; a conservative
 estimate is recorded if telemetry is unavailable) into the `generations` table, and
-enforced **per user** before any upstream call:
+enforced **per user** before any upstream call.
 
-| Window | Limit | Reset |
+Limits are **data, not code**: they live in the Neon `settings` table
+(`limit_daily`, `limit_weekly`, `limit_total`) and admins can edit them on the
+`/admin` page ("Spend limits · per user" card). Changes apply to every user
+immediately on their next generation attempt. `DEFAULT_SPEND_LIMITS` in
+`src/lib/limits.ts` only seeds the table and acts as a fallback if a setting is
+missing or unreadable.
+
+Defaults:
+
+| Window | Default | Reset |
 | --- | --- | --- |
 | Daily | $1.00 | midnight UTC |
 | Weekly | $2.00 | Monday 00:00 UTC |
 | Lifetime | $3.00 | never |
 
 - Exhausted budgets return `429 budget_exhausted` with a friendly message and the
-  current usage, so the client can update immediately.
+  current usage and limits, so the client can update immediately.
 - Signed-in users see a **usage meter** (Today / This week / All time) with used,
   remaining, and reset info; it refreshes after every generation via the `usage`
-  field on both success and limit-reached responses.
-- Limits are defined once in `src/lib/limits.ts` (`SPEND_LIMITS`) and shared by the
-  server (enforcement) and the client (display), so they can never drift.
+  and `limits` fields on both success and limit-reached responses.
+- `src/lib/limits.ts` holds the shared types and helpers (`LimitSet`,
+  `findHitLimit`, `budgetMessage`); the numeric values are read from the DB and
+  delivered to the client through `/api/me`, the generate responses, and
+  `/api/admin/*`, so client and server can never drift.
 
 ## Authentication
 
@@ -103,8 +114,9 @@ Browser                          Server (Next.js route)              OpenRouter
 src/
   app/
     api/generate/route.ts   # POST endpoint: auth, access, budget, rate limit, OpenRouter
-    api/me/route.ts         # access status + usage for the signed-in user
+    api/me/route.ts         # access status + usage + limits for the signed-in user
     api/admin/users/route.ts# admin-only list/approve/revoke/role management
+    api/admin/settings/route.ts # admin-only spend-limit get/update
     api/styles/route.ts     # public styles registry (also feeds the docs page)
     admin/page.tsx          # admin-only user management page (/admin)
     layout.tsx / page.tsx   # shell + marketing header
