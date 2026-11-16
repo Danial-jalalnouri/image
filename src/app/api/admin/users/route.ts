@@ -2,7 +2,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { requireAdmin } from "@/lib/admin";
-import { getGlobalUsage, getImageModel, getLimits, getUser, listUsers, setApproval, setRole } from "@/lib/db";
+import {
+  getDailyUsage,
+  getGlobalUsage,
+  getImageModel,
+  getLimits,
+  getUser,
+  listUsers,
+  setApproval,
+  setRole,
+} from "@/lib/db";
 
 /** GET /api/admin/users — list every user plus global API usage, limits, and the image model. */
 export async function GET() {
@@ -10,11 +19,14 @@ export async function GET() {
   if (guard.error) return guard.error;
 
   try {
-    const users = await listUsers();
-    const usage = await getGlobalUsage();
-    const limits = await getLimits();
-    const imageModel = await getImageModel();
-    return NextResponse.json({ ok: true, users, usage, limits, imageModel });
+    const [users, usage, limits, imageModel, dailyUsage] = await Promise.all([
+      listUsers(),
+      getGlobalUsage(),
+      getLimits(),
+      getImageModel(),
+      getDailyUsage(),
+    ]);
+    return NextResponse.json({ ok: true, users, usage, limits, imageModel, dailyUsage });
   } catch (error) {
     console.error("[admin/users] Database error:", error);
     return NextResponse.json({ ok: false, error: "Could not load users.", code: "upstream_error" }, { status: 500 });

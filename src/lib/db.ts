@@ -247,6 +247,41 @@ export async function getGlobalUsage(): Promise<GlobalUsage> {
   };
 }
 
+/** One UTC calendar day of all-user usage. */
+export interface DailyUsagePoint {
+  /** `YYYY-MM-DD` (UTC). */
+  day: string;
+  used: number;
+  count: number;
+}
+
+/**
+ * All-user usage per UTC calendar day for the last `days` days (today
+ * included). Zero-usage days are filled in so charts have no gaps.
+ */
+export async function getDailyUsage(days = 14): Promise<DailyUsagePoint[]> {
+  const result = await query`
+    SELECT
+      to_char(d.day, 'YYYY-MM-DD') AS day,
+      COALESCE(SUM(g.cost_usd), 0)::float8 AS used,
+      COUNT(g.id)::int AS count
+    FROM generate_series(
+      date_trunc('day', now() AT TIME ZONE 'UTC') - make_interval(days => ${days - 1}),
+      date_trunc('day', now() AT TIME ZONE 'UTC'),
+      interval '1 day'
+    ) AS d(day)
+    LEFT JOIN generations g
+      ON g.created_at >= d.day AND g.created_at < d.day + interval '1 day'
+    GROUP BY d.day
+    ORDER BY d.day
+  `;
+  return result.map((row) => ({
+    day: String(row.day),
+    used: Number(row.used ?? 0),
+    count: Number(row.count ?? 0),
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Styles (live registry in the styles table, managed by admins at /admin)
 // ---------------------------------------------------------------------------

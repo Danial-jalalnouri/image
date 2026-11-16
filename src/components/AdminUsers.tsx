@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { formatUsd, type GlobalUsage, type LimitSet } from "@/lib/limits";
 
+import { UsageChart, type DailyUsagePoint } from "./UsageChart";
+
 type AdminUser = {
   clerkUserId: string;
   email: string;
@@ -13,7 +15,7 @@ type AdminUser = {
 };
 
 type ListResponse =
-  | { ok: true; users: AdminUser[]; usage?: GlobalUsage; limits?: LimitSet; imageModel?: string }
+  | { ok: true; users: AdminUser[]; usage?: GlobalUsage; limits?: LimitSet; imageModel?: string; dailyUsage?: DailyUsagePoint[] }
   | { ok: false; error: string; code: string };
 type PatchResponse = { ok: true; user: AdminUser } | { ok: false; error: string; code: string };
 type MeResponse =
@@ -33,6 +35,7 @@ export function AdminUsers() {
   const [usage, setUsage] = useState<GlobalUsage | null>(null);
   const [limits, setLimits] = useState<LimitSet | null>(null);
   const [imageModel, setImageModel] = useState<string | null>(null);
+  const [dailyUsage, setDailyUsage] = useState<DailyUsagePoint[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -49,6 +52,7 @@ export function AdminUsers() {
       setUsage(payload.usage ?? null);
       setLimits(payload.limits ?? null);
       setImageModel(payload.imageModel ?? null);
+      setDailyUsage(payload.dailyUsage ?? null);
     } catch {
       setError("Could not load users. Is the database configured?");
     }
@@ -147,6 +151,7 @@ export function AdminUsers() {
       )}
 
       {usage && <GlobalUsageCard usage={usage} />}
+      {dailyUsage && dailyUsage.length > 0 && <UsageChart days={dailyUsage} />}
       {limits && <LimitsEditor limits={limits} onSaved={setLimits} />}
       {imageModel && <ModelEditor model={imageModel} onSaved={setImageModel} />}
 

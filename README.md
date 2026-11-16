@@ -35,7 +35,8 @@ New users cannot generate images until an admin approves them.
   "ask an admin for access" banner with a recheck button until they are approved.
 - **Admin page**: users with `role = 'admin'` get a dedicated `/admin` page (linked from the
   header) showing global API usage (dollars + generation count per day/week/all-time, same
-  UTC windows as the spend limits) and user management — approve / revoke, make admin /
+  UTC windows as the spend limits), a per-day usage chart of the last 14 UTC days, and user
+  management — approve / revoke, make admin /
   remove admin — backed by `GET|PATCH /api/admin/users`. Admin rights are checked against
   the database on every admin request, and non-admins who visit `/admin` see an
   "Admin access required" notice. Admins cannot revoke their own access or demote themselves.
@@ -164,6 +165,7 @@ src/
     ResultPanel.tsx         # result, download, error states
     UsageMeter.tsx          # daily/weekly/lifetime spend bars
     AdminUsers.tsx          # /admin page content (usage, limits, model, user list + actions)
+    UsageChart.tsx          # /admin per-day usage bar chart (SVG, dependency-free)
     AdminStyles.tsx         # /admin styles manager (edit/enable/disable/add/delete)
     AdminNavLink.tsx        # header link, shown only to admins
   lib/
