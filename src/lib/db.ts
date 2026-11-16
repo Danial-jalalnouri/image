@@ -10,6 +10,7 @@
 import { neon } from "@neondatabase/serverless";
 
 import { DEFAULT_SPEND_LIMITS, type GlobalUsage, type LimitSet, type UsageSnapshot } from "./limits";
+import { DEFAULT_STYLES, type StyleDefinition } from "./styles";
 
 /** Server-side user record as stored in Postgres. */
 export type DbUser = {
@@ -219,4 +220,122 @@ export async function getGlobalUsage(): Promise<GlobalUsage> {
     weekly: { used: Number(row.weekly_used ?? 0), count: Number(row.weekly_count ?? 0) },
     total: { used: Number(row.total_used ?? 0), count: Number(row.total_count ?? 0) },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Styles (live registry in the styles table, managed by admins at /admin)
+// ---------------------------------------------------------------------------
+
+/** Full style row as stored in Postgres. */
+export type StyleRecord = StyleDefinition & {
+  scenePrompt: string;
+  enabled: boolean;
+  sortOrder: number;
+};
+
+function toStyleRecord(row: Row): StyleRecord {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    tagline: String(row.tagline ?? ""),
+    emoji: String(row.emoji ?? "🎨"),
+    gradient: String(row.gradient ?? "from-indigo-500/80 to-violet-600/80"),
+    scenePrompt: String(row.scene_prompt ?? ""),
+    enabled: Boolean(row.enabled),
+    sortOrder: Number(row.sort_order ?? 0),
+  };
+}
+
+/** Lazily seed the styles table once per process when it is empty. */
+let stylesSeedPromise: Promise<void> | null = null;
+
+function ensureStylesSeeded(): Promise<void> {
+  if (!stylesSeedPromise) {
+    stylesSeedPromise = (async () => {
+      const result = await query`SELECT count(*)::int AS n FROM styles`;
+      if (Number(result[0]?.n ?? 0) > 0) return;
+      for (const [index, style] of DEFAULT_STYLES.entries()) {
+        await query`
+          INSERT INTO styles (id, name, tagline, emoji, gradient, scene_prompt, enabled, sort_order)
+          VALUES (${style.id}, ${style.name}, ${style.tagline}, ${style.emoji}, ${style.gradient}, ${style.scenePrompt}, true, ${index})
+          ON CONFLICT (id) DO NOTHING
+        `;
+      }
+    })().catch((error) => {
+      // Allow a later request to retry seeding instead of caching the failure.
+      stylesSeedPromise = null;
+      throw error;
+    });
+  }
+  return stylesSeedPromise;
+}
+
+/** All styles, ordered. Admins pass includeDisabled=true to see everything. */
+export async function listStyles(options?: { includeDisabled?: boolean }): Promise<StyleRecord[]> {
+  await ensureStylesSeeded();
+  const result = options?.includeDisabled
+    ? await query`SELECT * FROM styles ORDER BY sort_order, id`
+    : await query`SELECT * FROM styles WHERE enabled = true ORDER BY sort_order, id`;
+  return result.map(toStyleRecord);
+}
+
+/** One style by id (enabled or not), or null. */
+export async function getStyleById(id: string): Promise<StyleRecord | null> {
+  await ensureStylesSeeded();
+  const result = await query`SELECT * FROM styles WHERE id = ${id} LIMIT 1`;
+  return result[0] ? toStyleRecord(result[0]) : null;
+}
+
+export type NewStyle = StyleDefinition & { scenePrompt: string };
+
+/** Create a style. Throws on duplicate id (primary key). */
+export async function createStyle(style: NewStyle & { enabled?: boolean; sortOrder?: number }): Promise<StyleRecord> {
+  await ensureStylesSeeded();
+  let sortOrder = style.sortOrder;
+  if (sortOrder == null) {
+    const maxResult = await query`SELECT COALESCE(MAX(sort_order), -1)::int AS max FROM styles`;
+    sortOrder = Number(maxResult[0]?.max ?? -1) + 1;
+  }
+  const result = await query`
+    INSERT INTO styles (id, name, tagline, emoji, gradient, scene_prompt, enabled, sort_order)
+    VALUES (${style.id}, ${style.name}, ${style.tagline ?? ""}, ${style.emoji ?? "🎨"}, ${style.gradient ?? "from-indigo-500/80 to-violet-600/80"}, ${style.scenePrompt}, ${style.enabled ?? true}, ${sortOrder})
+    RETURNING *
+  `;
+  return toStyleRecord(result[0]);
+}
+
+/** Update any subset of a style's editable fields. Returns null if absent. */
+export async function updateStyle(
+  id: string,
+  patch: Partial<Pick<StyleRecord, "name" | "tagline" | "emoji" | "gradient" | "scenePrompt" | "enabled">>,
+): Promise<StyleRecord | null> {
+  const current = await getStyleById(id);
+  if (!current) return null;
+  const next = {
+    name: patch.name ?? current.name,
+    tagline: patch.tagline ?? current.tagline,
+    emoji: patch.emoji ?? current.emoji,
+    gradient: patch.gradient ?? current.gradient,
+    scenePrompt: patch.scenePrompt ?? current.scenePrompt,
+    enabled: patch.enabled ?? current.enabled,
+  };
+  const result = await query`
+    UPDATE styles
+    SET name = ${next.name},
+        tagline = ${next.tagline},
+        emoji = ${next.emoji},
+        gradient = ${next.gradient},
+        scene_prompt = ${next.scenePrompt},
+        enabled = ${next.enabled},
+        updated_at = now()
+    WHERE id = ${id}
+    RETURNING *
+  `;
+  return result[0] ? toStyleRecord(result[0]) : null;
+}
+
+/** Delete a style. Returns true when a row was removed. */
+export async function deleteStyle(id: string): Promise<boolean> {
+  const result = await query`DELETE FROM styles WHERE id = ${id} RETURNING id`;
+  return result.length > 0;
 }

@@ -1,6 +1,7 @@
 import { Show, SignInButton, UserButton } from "@clerk/nextjs";
 import { Suspense } from "react";
 
+import { AdminStyles } from "@/components/AdminStyles";
 import { AdminUsers } from "@/components/AdminUsers";
 
 export const metadata = {
@@ -41,6 +42,7 @@ export default function AdminPage() {
         <Suspense fallback={<AdminSkeleton />}>
           <Show when="signed-in" fallback={<AdminSignInPrompt />}>
             <AdminUsers />
+            <AdminStyles />
           </Show>
         </Suspense>
       </main>

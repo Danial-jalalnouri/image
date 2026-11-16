@@ -2,12 +2,12 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
-import { ERROR_CODES, MAX_IMAGE_BYTES, MAX_REQUEST_BODY_BYTES, STYLE_IDS, type ErrorCode, type GenerateResponse, type LimitSet, type UsageSnapshot } from "@/lib/api";
-import { ensureUser, getLimits, getSpendSummary, logGeneration } from "@/lib/db";
+import { ERROR_CODES, MAX_IMAGE_BYTES, MAX_REQUEST_BODY_BYTES, type ErrorCode, type GenerateResponse, type LimitSet, type UsageSnapshot } from "@/lib/api";
+import { ensureUser, getLimits, getSpendSummary, getStyleById, logGeneration } from "@/lib/db";
 import { ESTIMATED_COST_PER_GENERATION, budgetMessage, findHitLimit } from "@/lib/limits";
 import { clientKey, checkRateLimit } from "@/lib/rate-limit";
 import { OpenRouterError, generateStyledImage } from "@/lib/openrouter";
-import { getStyle } from "@/lib/styles";
+import { composePrompt } from "@/lib/styles";
 
 /** Only real raster images are accepted — never scripts or HTML. */
 const DATA_URL_PATTERN = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=\r\n]+)$/;
@@ -26,7 +26,7 @@ const generateSchema = z.object({
       },
       { message: "Image is too large." },
     ),
-  styleId: z.enum(STYLE_IDS, { error: "Please pick a valid style." }),
+  styleId: z.string().min(1, "Please pick a valid style."),
 });
 
 /** Size-accurate base64 length calculation (handles whitespace/newlines). */
@@ -131,13 +131,24 @@ export async function POST(request: NextRequest) {
     return errorResponse(code, message, code === "too_large" ? 413 : 400);
   }
 
-  const style = getStyle(parsed.data.styleId)!;
+  // --- Style lookup (Neon) ---------------------------------------------------
+  // The registry is database-driven; only enabled styles can be used.
+  let style;
+  try {
+    style = await getStyleById(parsed.data.styleId);
+  } catch (error) {
+    console.error("[generate] Style lookup failed:", error);
+    return errorResponse("upstream_error", "Could not load the style. Please try again.", 500);
+  }
+  if (!style || !style.enabled) {
+    return errorResponse("bad_request", "Please pick a valid style.", 400);
+  }
 
   // --- Generation -----------------------------------------------------------
   try {
     const result = await generateStyledImage({
       imageDataUrl: parsed.data.image,
-      prompt: style.prompt,
+      prompt: composePrompt(style.scenePrompt),
       signal: request.signal,
     });
 

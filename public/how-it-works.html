@@ -272,7 +272,7 @@
 │&nbsp;&nbsp;├─ <span class="f">StylePicker.tsx</span> <span class="note">— style cards (data-driven)</span><br>
 │&nbsp;&nbsp;└─ <span class="f">ResultPanel.tsx</span> <span class="note">— result, download/copy, error states</span><br>
 └─ <span class="d">lib/</span> <span class="note">— pure logic, no UI</span><br>
-&nbsp;&nbsp;&nbsp;&nbsp;├─ <span class="f">styles.ts</span> <span class="note">— style registry (prompts live here)</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├─ <span class="f">styles.ts</span> <span class="note">— default style seed + identity prompt contract (live styles live in the database)</span><br>
 &nbsp;&nbsp;&nbsp;&nbsp;├─ <span class="f">api.ts</span> <span class="note">— shared client/server contract + types</span><br>
 &nbsp;&nbsp;&nbsp;&nbsp;├─ <span class="f">openrouter.ts</span> <span class="note">— server-only OpenRouter client</span><br>
 &nbsp;&nbsp;&nbsp;&nbsp;├─ <span class="f">image-client.ts</span> <span class="note">— browser-side validation &amp; downscale</span><br>
@@ -433,7 +433,7 @@
       },
       build: {
         color: "#818cf8", tag: "🧩 Box 2 · Server", title: "What we add: the prompt",
-        html: "<p>The route looks up the chosen <code class=\"inline\">styleId</code> in the style registry and assembles the instruction that will steer the model. Pick a style to see its exact prompt — live from the running app's registry:</p><div id=\"styleChips\" class=\"style-chips\"><span class=\"picker-note\">Loading styles…</span></div><div id=\"styleDetails\"></div><p>The prompt and the photo are packed into a two-part message: one <code class=\"inline\">text</code> part, one <code class=\"inline\">image_url</code> part. Deep dive: <a href=\"#styles\">style registry</a></p>"
+        html: "<p>The route looks up the chosen <code class=\"inline\">styleId</code> in the database's <code class=\"inline\">styles</code> table (admin-managed at /admin) and assembles the instruction that will steer the model. Pick a style to see its exact prompt — live from the running app's registry:</p><div id=\"styleChips\" class=\"style-chips\"><span class=\"picker-note\">Loading styles…</span></div><div id=\"styleDetails\"></div><p>The prompt and the photo are packed into a two-part message: one <code class=\"inline\">text</code> part, one <code class=\"inline\">image_url</code> part. Deep dive: <a href=\"#styles\">style registry</a></p>"
       },
       hop2: {
         color: "#a78bfa", tag: "➡️ Hop 2 · Server → AI", title: "The OpenRouter request",
@@ -575,31 +575,30 @@
   </span></div>
 
 
-  <h2 id="styles"><span class="num">05</span> Style registry — <code class="inline">src/lib/styles.ts</code></h2>
+  <h2 id="styles"><span class="num">05</span> Style registry — the <code class="inline">styles</code> table</h2>
   <p>
-    Styles are <strong>data, not code</strong>. Each entry in the <code class="inline">STYLES</code> array is a
-    <code class="inline">StyleDefinition</code>: an <code class="inline">id</code>, display fields
+    Styles are <strong>data, not code — and not even in a source file</strong>. The live registry is the
+    <code class="inline">styles</code> table in Neon Postgres, and admins manage it at
+    <code class="inline">/admin</code>: edit prompts, enable/disable, delete, or add styles — no deploy needed.
+    Each row has an <code class="inline">id</code>, display fields
     (<code class="inline">name</code>, <code class="inline">tagline</code>, <code class="inline">emoji</code>,
-    <code class="inline">gradient</code>), and a <code class="inline">prompt</code> — the exact instruction sent to the model.
+    <code class="inline">gradient</code>), an <code class="inline">enabled</code> flag, and a
+    <code class="inline">scene_prompt</code>.
   </p>
   <p>Every prompt starts with the scene description, then appends one shared block,
     <code class="inline">IDENTITY_PRESERVATION</code>, which is the product's core contract:</p>
-  <pre><span class="c">// excerpt from styles.ts</span>
-<span class="k">const</span> <span class="n">IDENTITY_PRESERVATION</span> =
-  <span class="s">"Keep the person's face, features, hairstyle… exactly identical… "</span> +
-  <span class="s">"Integrate them seamlessly: match the scene's lighting direction, "</span> +
-  <span class="s">"color temperature, shadows, perspective, depth of field…"</span>;
+  <pre><span class="c">// the database stores the scene part only…</span>
+<span class="k">INSERT INTO</span> styles (id, name, tagline, emoji, gradient, scene_prompt, enabled)
+<span class="k">VALUES</span> (<span class="s">'office'</span>, <span class="s">'Office'</span>, <span class="s">'In a modern corner office at work'</span>, <span class="s">'💼'</span>, <span class="s">'from-sky-500/80 to-indigo-600/80'</span>, <span class="s">'Place the person from the photo into a bright, modern executive office…'</span>, <span class="k">true</span>);
 
-<span class="k">export</span> <span class="k">const</span> <span class="n">STYLES</span> = [
-  { <span class="n">id</span>: <span class="s">"office"</span>, <span class="n">name</span>: <span class="s">"Office"</span>, <span class="f">prompt</span>:
-    <span class="s">"Place the person from the photo into a bright, modern executive office… "</span> +
-    IDENTITY_PRESERVATION },
-  <span class="c">/* beach, cafe, studio, nightscape, alpine … */</span>
-];</pre>
+<span class="c">// …and the server composes the final instruction:</span>
+prompt = scenePrompt + IDENTITY_PRESERVATION</pre>
   <p>
-    The Office prompt additionally describes camera language (85&nbsp;mm, f/2.8, window light) — concrete
-    photographic direction consistently produces more believable composites. The picker UI and the API's
-    valid-style list both <em>derive from this array</em>, so adding an entry is all it takes to ship a new scene.
+    The identity block <code class="inline">IDENTITY_PRESERVATION</code> stays in code and is appended by the
+    server to every scene prompt — so no edit in the admin UI can ever weaken the contract. Disabled styles
+    disappear from the picker and are rejected by the API. The Office prompt additionally describes camera
+    language (85&nbsp;mm, f/2.8, window light) — concrete photographic direction consistently produces more
+    believable composites.
   </p>
 
   <h2 id="api-contract"><span class="num">06</span> API contract — <code class="inline">src/lib/api.ts</code></h2>
@@ -609,9 +608,9 @@
   </p>
   <ul style="margin: 8px 24px 8px 0; padding-left: 22px; color: var(--muted);">
     <li><code class="inline">GenerateRequest</code> — <code class="inline">{ image, styleId }</code></li>
-    <li><code class="inline">GenerateResponse</code> — success <code class="inline">{ ok: true, image, note? }</code> or failure <code class="inline">{ ok: false, error, code }</code></li>
-    <li><code class="inline">ERROR_CODES</code> / <code class="inline">ErrorCode</code> — the seven stable error codes both sides understand</li>
-    <li><code class="inline">STYLE_IDS</code> — derived from the registry with <code class="inline">STYLES.map(s =&gt; s.id)</code>, so it can never go stale</li>
+    <li><code class="inline">GenerateResponse</code> — success <code class="inline">{ ok: true, image, note?, usage?, limits? }</code> or failure <code class="inline">{ ok: false, error, code, usage?, limits? }</code></li>
+    <li><code class="inline">ERROR_CODES</code> / <code class="inline">ErrorCode</code> — the ten stable error codes both sides understand</li>
+    <li>Valid <code class="inline">styleId</code> values are looked up in the database's <code class="inline">styles</code> table, so admin changes apply without a deploy</li>
   </ul>
 
   <h2 id="route"><span class="num">07</span> API route — <code class="inline">src/app/api/generate/route.ts</code></h2>
@@ -736,12 +735,15 @@
   </div>
 
   <h2 id="errors"><span class="num">12</span> Error handling map</h2>
-  <p>Every failure becomes one of seven stable codes, shared by both sides through <code class="inline">api.ts</code>:</p>
+  <p>Every failure becomes one of ten stable codes, shared by both sides through <code class="inline">api.ts</code>:</p>
   <table>
     <tr><th>Code</th><th>HTTP</th><th>When it happens</th><th>User sees</th></tr>
-    <tr><td><code>bad_request</code></td><td><span class="pill err">400</span></td><td>Malformed JSON, not a data URL, unknown style</td><td>Exact reason</td></tr>
+    <tr><td><code>unauthorized</code></td><td><span class="pill err">401</span></td><td>Not signed in, or the account can't be resolved</td><td>"Please sign in…"</td></tr>
+    <tr><td><code>bad_request</code></td><td><span class="pill err">400</span></td><td>Malformed JSON, not a data URL, unknown/disabled style</td><td>Exact reason</td></tr>
     <tr><td><code>too_large</code></td><td><span class="pill warn">413</span></td><td>Image over 10&nbsp;MB decoded / 14&nbsp;MB body</td><td>"Image is too large."</td></tr>
     <tr><td><code>rate_limited</code></td><td><span class="pill warn">429</span></td><td>More than 8 requests/min from one IP (also from OpenRouter itself)</td><td>Retry message + <code>Retry-After</code></td></tr>
+    <tr><td><code>access_pending</code></td><td><span class="pill warn">403</span></td><td>Signed in but not yet approved by an admin</td><td>"Ask an admin to grant you access."</td></tr>
+    <tr><td><code>budget_exhausted</code></td><td><span class="pill warn">429</span></td><td>Daily/weekly/lifetime spend limit reached (checked before any upstream call)</td><td>Which limit, its value, and when it resets</td></tr>
     <tr><td><code>not_configured</code></td><td><span class="pill err">503</span></td><td>Missing/invalid API key or out of credits</td><td>Sanitized message; detail only in server logs</td></tr>
     <tr><td><code>upstream_error</code></td><td><span class="pill err">502</span></td><td>OpenRouter unreachable or 5xx</td><td>"Something went wrong…"</td></tr>
     <tr><td><code>upstream_refused</code></td><td><span class="pill err">502</span></td><td>Model answered with text, no image (e.g. safety refusal)</td><td>The model's own explanation</td></tr>
@@ -755,18 +757,18 @@
   </span></div>
 
   <h2 id="extend"><span class="num">13</span> How to add a new style</h2>
-  <p>No UI or API changes are needed — append one object to <code class="inline">STYLES</code> in <code class="inline">src/lib/styles.ts</code>:</p>
+  <p>No code or deploy is needed — admins add it live at <code class="inline">/admin</code> → <strong>Styles → + Add a new style</strong>:</p>
   <pre>{
   <span class="n">id</span>: <span class="s">"gym"</span>,                      <span class="c">// stable, unique, used in the API</span>
   <span class="n">name</span>: <span class="s">"Gym"</span>,                    <span class="c">// card title</span>
   <span class="n">tagline</span>: <span class="s">"Mid-workout, weights in hand"</span>,
   <span class="n">emoji</span>: <span class="s">"🏋️"</span>,
-  <span class="n">gradient</span>: <span class="s">"from-lime-400/80 to-emerald-600/80"</span>,
-  <span class="n">prompt</span>: <span class="s">"Place the person from the photo in a modern gym… "</span> + IDENTITY_PRESERVATION,
+  <span class="n">scene_prompt</span>: <span class="s">"Place the person from the photo in a modern gym…"</span>
 }</pre>
   <p>
     Everything else updates automatically: the picker card, the API's valid <code class="inline">styleId</code> list
-    (derived), the "Generate … scene" button label, and the download filename.
+    (queried from the database), the "Generate … scene" button label, the download filename, and the docs page.
+    Styles can also be disabled or deleted at any time from the same panel.
   </p>
 
   <h2 id="run"><span class="num">14</span> Running &amp; deploying</h2>

@@ -1,21 +1,30 @@
 "use client";
 
-import { STYLES } from "@/lib/styles";
+import type { StyleDefinition } from "@/lib/styles";
 
 interface StylePickerProps {
+  /** Enabled styles, live from the database (GET /api/styles). */
+  styles: StyleDefinition[];
   value: string;
   onChange: (styleId: string) => void;
   disabled?: boolean;
 }
 
-export function StylePicker({ value, onChange, disabled = false }: StylePickerProps) {
+export function StylePicker({ styles, value, onChange, disabled = false }: StylePickerProps) {
+  if (styles.length === 0) {
+    return (
+      <p className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs text-amber-200">
+        No styles are available right now. An admin can add or re-enable styles in the admin area.
+      </p>
+    );
+  }
   return (
     <div
       role="radiogroup"
       aria-label="Scene style"
       className="grid grid-cols-2 gap-3 sm:grid-cols-3"
     >
-      {STYLES.map((style) => {
+      {styles.map((style) => {
         const selected = style.id === value;
         return (
           <button

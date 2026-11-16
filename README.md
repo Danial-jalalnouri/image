@@ -104,9 +104,13 @@ Browser                          Server (Next.js route)              OpenRouter
 
 - **API key never reaches the client.** All OpenRouter traffic goes through `POST /api/generate`.
 - **Client-side preprocessing** keeps uploads small and fast; server limits are the safety net.
-- **Styles are data, not code** — add a new scene by appending one entry to
-  `src/lib/styles.ts`. Every style prompt shares the same identity-preservation contract:
-  keep the person's face identical, re-light and re-dress them for the scene.
+- **Styles are data, not code — they live in the database.** The `styles` table in Neon
+  holds every style (`id`, `name`, `tagline`, `emoji`, `gradient`, `scene_prompt`,
+  `enabled`). Admins manage them at `/admin` (edit prompts, enable/disable, add,
+  delete) and changes apply immediately — no deploy. The database stores only the
+  scene part; the shared `IDENTITY_PRESERVATION` contract is appended by the server
+  (`composePrompt`), so no edit can weaken it. `src/lib/styles.ts` keeps the shared
+  types plus the `DEFAULT_STYLES` seed used to bootstrap an empty table.
 
 ## Project layout
 
@@ -117,7 +121,8 @@ src/
     api/me/route.ts         # access status + usage + limits for the signed-in user
     api/admin/users/route.ts# admin-only list/approve/revoke/role management
     api/admin/settings/route.ts # admin-only spend-limit get/update
-    api/styles/route.ts     # public styles registry (also feeds the docs page)
+    api/admin/styles/route.ts + [id]/route.ts # admin-only style CRUD
+    api/styles/route.ts     # public enabled-styles registry (also feeds the docs page)
     admin/page.tsx          # admin-only user management page (/admin)
     layout.tsx / page.tsx   # shell + marketing header
     globals.css             # Tailwind v4 theme, dark studio look
@@ -127,13 +132,14 @@ src/
     StylePicker.tsx         # style cards (data-driven)
     ResultPanel.tsx         # result, download, error states
     UsageMeter.tsx          # daily/weekly/lifetime spend bars
-    AdminUsers.tsx          # /admin page content (user list + actions)
+    AdminUsers.tsx          # /admin page content (usage, limits, user list + actions)
+    AdminStyles.tsx         # /admin styles manager (edit/enable/disable/add/delete)
     AdminNavLink.tsx        # header link, shown only to admins
   lib/
-    styles.ts               # style registry (prompts live here)
+    styles.ts               # style types, identity contract, DEFAULT_STYLES seed
     api.ts                  # shared client/server API contract
-    limits.ts               # spend limits + usage types (server & client)
-    db.ts                   # Neon Postgres access (users, generations)
+    limits.ts               # spend-limit types + helpers (server & client)
+    db.ts                   # Neon Postgres access (users, generations, settings, styles)
     openrouter.ts           # server-only OpenRouter client
     image-client.ts         # browser-side validation/downscale
     rate-limit.ts           # per-IP fixed-window limiter (in-memory)

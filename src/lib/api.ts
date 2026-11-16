@@ -4,7 +4,6 @@
  */
 
 import { DEFAULT_SPEND_LIMITS, type LimitSet, type UsageSnapshot } from "./limits";
-import { STYLES } from "./styles";
 
 /** Re-exported so consumers can import everything API-related from one module. */
 export { MAX_IMAGE_BYTES, MAX_REQUEST_BODY_BYTES } from "./constants";
@@ -40,6 +39,3 @@ export const ERROR_CODES = [
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
-
-/** Valid style ids, derived from the registry so they can never drift. */
-export const STYLE_IDS = STYLES.map((style) => style.id) as [string, ...string[]];

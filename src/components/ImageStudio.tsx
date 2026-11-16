@@ -6,7 +6,7 @@ import { ImageUploader } from "./ImageUploader";
 import { StylePicker } from "./StylePicker";
 import { ResultPanel } from "./ResultPanel";
 import { UsageMeter } from "./UsageMeter";
-import { DEFAULT_STYLE_ID, getStyle } from "@/lib/styles";
+import { DEFAULT_STYLE_ID, type StyleDefinition } from "@/lib/styles";
 import { DEFAULT_SPEND_LIMITS, type GenerateResponse, type LimitSet, type UsageSnapshot } from "@/lib/api";
 
 type Status = "idle" | "generating" | "done" | "error";
@@ -23,6 +23,7 @@ export function ImageStudio() {
   const [me, setMe] = useState<Extract<MeResponse, { ok: true }> | null>(null);
   const [usage, setUsage] = useState<UsageSnapshot | null>(null);
   const [limits, setLimits] = useState<LimitSet>(DEFAULT_SPEND_LIMITS);
+  const [styles, setStyles] = useState<StyleDefinition[]>([]);
   const [accessState, setAccessState] = useState<"checking" | "denied" | "granted">("checking");
 
   // Ask the server whether this account may generate. First-time users are
@@ -48,6 +49,27 @@ export function ImageStudio() {
   useEffect(() => {
     void checkAccess();
   }, [checkAccess]);
+
+  // Styles are database-driven and admin-managed; the public endpoint serves
+  // the enabled ones. If the current selection disappears, fall back to the
+  // first available style.
+  const loadStyles = useCallback(async () => {
+    try {
+      const response = await fetch("/api/styles");
+      const payload = (await response.json()) as { ok: boolean; styles?: StyleDefinition[] };
+      if (!payload.ok || !payload.styles) return;
+      setStyles(payload.styles);
+      setStyleId((current) =>
+        payload.styles!.some((style) => style.id === current) ? current : payload.styles![0]?.id ?? DEFAULT_STYLE_ID,
+      );
+    } catch {
+      // Picker shows a "no styles available" notice; server still validates.
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadStyles();
+  }, [loadStyles]);
 
   // Abort any in-flight generation when a new one starts or the page unmounts.
   const abortRef = useRef<AbortController | null>(null);
@@ -118,7 +140,7 @@ export function ImageStudio() {
   }
 
   const busy = status === "generating";
-  const style = getStyle(styleId);
+  const style = styles.find((item) => item.id === styleId);
 
   return (
     <div className="grid w-full gap-6 lg:grid-cols-2">
@@ -135,7 +157,7 @@ export function ImageStudio() {
 
         <section className="rounded-2xl border border-white/10 bg-white/[0.02] p-5">
           <SectionTitle step={2} title="Choose a style" />
-          <StylePicker value={styleId} onChange={setStyleId} disabled={busy} />
+          <StylePicker styles={styles} value={styleId} onChange={setStyleId} disabled={busy} />
         </section>
 
         <button
