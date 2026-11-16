@@ -9,6 +9,7 @@
 
 import { neon } from "@neondatabase/serverless";
 
+import { DEFAULT_MODEL } from "./constants";
 import { DEFAULT_SPEND_LIMITS, type GlobalUsage, type LimitSet, type UsageSnapshot } from "./limits";
 import { DEFAULT_STYLES, type StyleDefinition } from "./styles";
 
@@ -197,6 +198,30 @@ export async function setLimits(limits: LimitSet): Promise<LimitSet> {
     else if (key === "limit_total") stored.total = value;
   }
   return stored;
+}
+
+/**
+ * The OpenRouter image model used for every generation. Stored in the
+ * `settings` table (key `image_model`), editable by admins at /admin.
+ * Falls back to DEFAULT_MODEL when the row is missing or malformed, so
+ * this never throws on partial data.
+ */
+export async function getImageModel(): Promise<string> {
+  const result = await query`SELECT value FROM settings WHERE key = 'image_model' LIMIT 1`;
+  const value = String(result[0]?.value ?? "").trim();
+  // Minimal sanity check: a model id is at least "vendor/name".
+  return /^[a-z0-9][a-z0-9._/-]*\/[a-z0-9][a-z0-9._:-]*$/i.test(value) ? value : DEFAULT_MODEL;
+}
+
+/** Persist the image model. Returns the stored value. */
+export async function setImageModel(model: string): Promise<string> {
+  const result = await query`
+    INSERT INTO settings (key, value)
+    VALUES ('image_model', ${model})
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+    RETURNING value
+  `;
+  return String(result[0]?.value ?? model);
 }
 
 /**

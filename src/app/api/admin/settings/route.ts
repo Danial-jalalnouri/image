@@ -2,16 +2,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { requireAdmin } from "@/lib/admin";
-import { getLimits, setLimits } from "@/lib/db";
+import { getImageModel, getLimits, setImageModel, setLimits } from "@/lib/db";
 
-/** GET /api/admin/settings — the current spend limits. */
+/** GET /api/admin/settings — the current spend limits and image model. */
 export async function GET() {
   const guard = await requireAdmin();
   if (guard.error) return guard.error;
 
   try {
-    const limits = await getLimits();
-    return NextResponse.json({ ok: true, limits });
+    const [limits, imageModel] = await Promise.all([getLimits(), getImageModel()]);
+    return NextResponse.json({ ok: true, limits, imageModel });
   } catch (error) {
     console.error("[admin/settings] Database error:", error);
     return NextResponse.json(
@@ -27,7 +27,22 @@ const limitsSchema = z.object({
   total: z.number().min(0).max(1000),
 });
 
-/** PATCH /api/admin/settings — update the spend limits (applies to every user). */
+/** Matches OpenRouter model ids such as "google/gemini-3.1-flash-image". */
+const modelSchema = z
+  .string()
+  .transform((value) => value.trim())
+  .pipe(
+    z
+      .string()
+      .min(3, "Model id is too short.")
+      .max(120, "Model id is too long.")
+      .regex(
+        /^[a-z0-9][a-z0-9._/-]*\/[a-z0-9][a-z0-9._:-]*$/i,
+        'Model id must look like "vendor/model" — e.g. google/gemini-3.1-flash-image.',
+      ),
+  );
+
+/** PATCH /api/admin/settings — update the spend limits or the image model. */
 export async function PATCH(request: NextRequest) {
   const guard = await requireAdmin();
   if (guard.error) return guard.error;
@@ -37,6 +52,26 @@ export async function PATCH(request: NextRequest) {
     rawBody = await request.json();
   } catch {
     return NextResponse.json({ ok: false, error: "Request body must be valid JSON.", code: "bad_request" }, { status: 400 });
+  }
+
+  // The image model has its own branch so the admin can save either setting
+  // without touching the other.
+  if (rawBody !== null && typeof rawBody === "object" && "imageModel" in rawBody) {
+    const parsed = modelSchema.safeParse((rawBody as { imageModel: unknown }).imageModel);
+    if (!parsed.success) {
+      const message = parsed.error.issues[0]?.message ?? "Invalid model id.";
+      return NextResponse.json({ ok: false, error: message, code: "bad_request" }, { status: 400 });
+    }
+    try {
+      const imageModel = await setImageModel(parsed.data);
+      return NextResponse.json({ ok: true, imageModel });
+    } catch (error) {
+      console.error("[admin/settings] Database error:", error);
+      return NextResponse.json(
+        { ok: false, error: "Could not save the image model.", code: "upstream_error" },
+        { status: 500 },
+      );
+    }
   }
 
   const parsed = limitsSchema.safeParse(rawBody);

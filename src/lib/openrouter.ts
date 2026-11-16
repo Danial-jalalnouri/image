@@ -1,14 +1,16 @@
 /**
  * Server-only client for OpenRouter image generation.
  *
- * Uses `google/gemini-3.1-flash-image` (Nano Banana 2) by default: a
- * text+image → text+image model that receives the user's photo plus a style
- * prompt and returns the edited image inline as a base64 data URL.
+ * Sends the user's photo plus a style prompt to the configured image model —
+ * the `image_model` setting in the database, admin-editable at /admin, which
+ * falls back to `google/gemini-3.1-flash-image` (Nano Banana 2) — and returns
+ * the edited image inline as a base64 data URL.
  *
- * NEVER import this from client components — it depends on server env vars.
+ * NEVER import this from client components — it depends on server env vars
+ * and the database.
  */
 
-import { DEFAULT_MODEL } from "./constants";
+import { getImageModel } from "./db";
 
 const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 
@@ -85,7 +87,10 @@ export async function generateStyledImage({
   }
 
   const baseUrl = process.env.OPENROUTER_BASE_URL?.trim() || DEFAULT_BASE_URL;
-  const model = process.env.OPENROUTER_IMAGE_MODEL?.trim() || DEFAULT_MODEL;
+  // The model is database-driven (admin-editable at /admin). A DB failure
+  // surfaces as upstream_error via the caller's catch — fail closed rather
+  // than silently generating with a stale default.
+  const model = await getImageModel();
 
   let response: Response;
   try {

@@ -254,7 +254,7 @@
     <tr><td>Language</td><td>TypeScript (strict)</td><td>The client/server API contract is a single typed module, so drift is caught at build time.</td></tr>
     <tr><td>Styling</td><td>Tailwind CSS v4</td><td>Utility classes keep the dark "studio" look co-located with markup; theme lives in <code class="inline">globals.css</code>.</td></tr>
     <tr><td>Validation</td><td>Zod</td><td>Declarative input validation with friendly, user-safe error messages.</td></tr>
-    <tr><td>AI model</td><td><code class="inline">google/gemini-3.1-flash-image</code></td><td>A <em>text+image → text+image</em> model ("Nano Banana 2"): it receives the user's photo plus a prompt and returns the edited image inline as base64.</td></tr>
+    <tr><td>AI model</td><td><code class="inline">google/gemini-3.1-flash-image</code> (default)</td><td>A <em>text+image → text+image</em> model ("Nano Banana 2"): it receives the user's photo plus a prompt and returns the edited image inline as base64. Stored in the database's <code class="inline">settings</code> table and admin-editable at <code class="inline">/admin</code>.</td></tr>
   </table>
 
   <h2 id="tree"><span class="num">02</span> Project structure</h2>
@@ -651,7 +651,7 @@ prompt = scenePrompt + IDENTITY_PRESERVATION</pre>
     <span class="s">"HTTP-Referer"</span>: process.env.APP_URL,   <span class="c">// OpenRouter attribution</span>
   },
   <span class="n">body</span>: <span class="f">JSON.stringify</span>({
-    <span class="n">model</span>: process.env.OPENROUTER_IMAGE_MODEL ?? <span class="s">"google/gemini-3.1-flash-image"</span>,
+    <span class="n">model</span>: <span class="k">await</span> <span class="f">getImageModel</span>(),   <span class="c">// from the settings table (admin-editable)</span>
     <span class="n">modalities</span>: [<span class="s">"image"</span>, <span class="s">"text"</span>],        <span class="c">// ask for image output</span>
     <span class="n">messages</span>: [{
       <span class="n">role</span>: <span class="s">"user"</span>,
@@ -665,7 +665,7 @@ prompt = scenePrompt + IDENTITY_PRESERVATION</pre>
 })</pre>
   <p>Key behaviors:</p>
   <ul style="margin: 8px 24px 8px 0; padding-left: 22px; color: var(--muted);">
-    <li><strong>Model selection</strong> defaults to <code class="inline">google/gemini-3.1-flash-image</code> ( Nano Banana 2), overridable via <code class="inline">OPENROUTER_IMAGE_MODEL</code> — useful for testing against <code class="inline">google/gemini-3-pro-image</code> or future models.</li>
+    <li><strong>Model selection</strong> comes from the database's <code class="inline">settings</code> table (key <code class="inline">image_model</code>, default <code class="inline">google/gemini-3.1-flash-image</code> aka Nano Banana 2) — admins change it at <code class="inline">/admin</code>, no deploy needed. Useful for switching to newer models as they appear.</li>
     <li><strong>Timeout &amp; cancellation</strong>: both the caller's signal and a 120&nbsp;s deadline are combined; races are caught and re-thrown as typed errors (<code class="inline">timeout</code>, <code class="inline">upstream_error</code>).</li>
     <li><strong>Typed failures</strong>: every failure path throws <code class="inline">OpenRouterError</code> carrying a machine-readable <code class="inline">code</code> and a user-safe <code class="inline">message</code>. Upstream 401/402/403 → <code class="inline">not_configured</code>, 429 → <code class="inline">rate_limited</code>, and so on.</li>
     <li><strong>No-image responses</strong>: if the model answers with text but no image (usually a content refusal), the note is surfaced so the user knows <em>why</em>.</li>
@@ -783,7 +783,6 @@ npm start</pre>
   <table>
     <tr><th>Env variable</th><th>Required</th><th>Purpose</th></tr>
     <tr><td><code>OPENROUTER_API_KEY</code></td><td>yes</td><td>OpenRouter API key (server-side only)</td></tr>
-    <tr><td><code>OPENROUTER_IMAGE_MODEL</code></td><td>no</td><td>Model override; default <code>google/gemini-3.1-flash-image</code></td></tr>
     <tr><td><code>OPENROUTER_BASE_URL</code></td><td>no</td><td>Self-hosted / proxy OpenRouter-compatible endpoint</td></tr>
     <tr><td><code>APP_URL</code></td><td>no</td><td>Sent as <code>HTTP-Referer</code> for OpenRouter rankings</td></tr>
   </table>
@@ -793,7 +792,7 @@ npm start</pre>
   </p>
 
   <footer>
-    Portrait Studio · powered by <code class="inline">google/gemini-3.1-flash-image</code> via OpenRouter ·
+    Portrait Studio · powered by an OpenRouter image model (default <code class="inline">google/gemini-3.1-flash-image</code>) ·
     <a href="/">← Back to the app</a>
   </footer>
 </div>

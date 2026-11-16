@@ -3,11 +3,12 @@
 Upload a photo of yourself, pick a scene (e.g. **Office**), and AI places you into it — same
 face, brand-new setting.
 
-Built with Next.js (App Router, TypeScript, Tailwind v4). Image generation runs on
-`google/gemini-3.1-flash-image` (Nano Banana 2) through [OpenRouter](https://openrouter.ai).
+Built with Next.js (App Router, TypeScript, Tailwind v4). Image generation runs on an
+OpenRouter image model — `google/gemini-3.1-flash-image` (Nano Banana 2) by default,
+stored in the database and admin-editable at `/admin`.
 Authentication is handled by [Clerk](https://clerk.com) — **email + password only**
 (no social login), managed via the `clerk` CLI against the `image` application.
-Users and spend tracking live in [Neon](https://neon.tech) Postgres.
+Users, styles, and spend tracking live in [Neon](https://neon.tech) Postgres.
 
 ## Quick start
 
@@ -72,6 +73,15 @@ Defaults:
   delivered to the client through `/api/me`, the generate responses, and
   `/api/admin/*`, so client and server can never drift.
 
+## Image model
+
+The OpenRouter model is **stored in the database, not the environment**: the
+`settings` table holds an `image_model` key (default
+`google/gemini-3.1-flash-image`), and admins can change it on the `/admin`
+page ("Image model" card). It applies to every generation from the next
+request onward. `DEFAULT_MODEL` in `src/lib/constants.ts` only seeds/falls
+back when the setting is missing or unreadable.
+
 ## Authentication
 
 - **Provider**: Clerk, application `image` (dev instance). Configure providers with
@@ -120,7 +130,7 @@ src/
     api/generate/route.ts   # POST endpoint: auth, access, budget, rate limit, OpenRouter
     api/me/route.ts         # access status + usage + limits for the signed-in user
     api/admin/users/route.ts# admin-only list/approve/revoke/role management
-    api/admin/settings/route.ts # admin-only spend-limit get/update
+    api/admin/settings/route.ts # admin-only spend-limit + image-model get/update
     api/admin/styles/route.ts + [id]/route.ts # admin-only style CRUD
     api/styles/route.ts     # public enabled-styles registry (also feeds the docs page)
     admin/page.tsx          # admin-only user management page (/admin)
@@ -132,7 +142,7 @@ src/
     StylePicker.tsx         # style cards (data-driven)
     ResultPanel.tsx         # result, download, error states
     UsageMeter.tsx          # daily/weekly/lifetime spend bars
-    AdminUsers.tsx          # /admin page content (usage, limits, user list + actions)
+    AdminUsers.tsx          # /admin page content (usage, limits, model, user list + actions)
     AdminStyles.tsx         # /admin styles manager (edit/enable/disable/add/delete)
     AdminNavLink.tsx        # header link, shown only to admins
   lib/
@@ -151,10 +161,9 @@ src/
 | Variable | Required | Description |
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | yes | OpenRouter API key |
-| `OPENROUTER_IMAGE_MODEL` | no | Override model (default `google/gemini-3.1-flash-image`) |
 | `OPENROUTER_BASE_URL` | no | OpenRouter-compatible endpoint override |
 | `APP_URL` | no | Sent to OpenRouter as `HTTP-Referer` for attribution |
-| `DATABASE_URL` | yes | Neon Postgres connection string (project `image`) |
+| `DATABASE_URL` | yes | Neon Postgres connection string (project `image`). The image model lives in its `settings` table, not here |
 | `CLERK_SECRET_KEY` / `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | yes | Clerk keys (written by `clerk init` / `clerk env pull`) |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` etc. | no | Clerk route overrides (written by `clerk init`) |
 

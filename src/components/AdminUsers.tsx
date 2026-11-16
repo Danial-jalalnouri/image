@@ -13,7 +13,7 @@ type AdminUser = {
 };
 
 type ListResponse =
-  | { ok: true; users: AdminUser[]; usage?: GlobalUsage; limits?: LimitSet }
+  | { ok: true; users: AdminUser[]; usage?: GlobalUsage; limits?: LimitSet; imageModel?: string }
   | { ok: false; error: string; code: string };
 type PatchResponse = { ok: true; user: AdminUser } | { ok: false; error: string; code: string };
 type MeResponse =
@@ -32,6 +32,7 @@ export function AdminUsers() {
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [usage, setUsage] = useState<GlobalUsage | null>(null);
   const [limits, setLimits] = useState<LimitSet | null>(null);
+  const [imageModel, setImageModel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -47,6 +48,7 @@ export function AdminUsers() {
       setUsers(payload.users);
       setUsage(payload.usage ?? null);
       setLimits(payload.limits ?? null);
+      setImageModel(payload.imageModel ?? null);
     } catch {
       setError("Could not load users. Is the database configured?");
     }
@@ -146,6 +148,7 @@ export function AdminUsers() {
 
       {usage && <GlobalUsageCard usage={usage} />}
       {limits && <LimitsEditor limits={limits} onSaved={setLimits} />}
+      {imageModel && <ModelEditor model={imageModel} onSaved={setImageModel} />}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <UserGroup
@@ -290,6 +293,97 @@ function LimitField({
       </div>
       <p className="mt-1 text-[11px] text-zinc-600">{hint}</p>
     </label>
+  );
+}
+
+/**
+ * Editable OpenRouter image model, persisted in the settings table.
+ * Applies to every generation from the next request onward.
+ */
+function ModelEditor({ model, onSaved }: { model: string; onSaved: (model: string) => void }) {
+  const [value, setValue] = useState(model);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  // Re-sync whenever fresh values arrive (load, refresh, save).
+  useEffect(() => {
+    setValue(model);
+  }, [model]);
+
+  const dirty = value.trim() !== model;
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const response = await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageModel: value }),
+      });
+      const payload = (await response.json()) as
+        | { ok: true; imageModel: string }
+        | { ok: false; error: string; code: string };
+      if (!payload.ok) {
+        setError(payload.error);
+        return;
+      }
+      onSaved(payload.imageModel);
+      setSaved(true);
+    } catch {
+      setError("Network error — please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+      <div className="mb-4 flex items-center gap-2.5">
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-500/15 text-[11px] font-bold text-indigo-300">
+          🧠
+        </span>
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-200">Image model</h2>
+          <p className="mt-0.5 text-xs text-zinc-600">
+            OpenRouter model used for every generation. Applies from the next request —
+            format <span className="font-mono">vendor/model</span>.
+          </p>
+        </div>
+      </div>
+      <div className="max-w-md">
+        <label className="block rounded-xl border border-white/5 bg-white/[0.02] p-4">
+          <span className="text-xs font-medium text-zinc-400">Model id</span>
+          <input
+            type="text"
+            spellCheck={false}
+            value={value}
+            onChange={(event) => {
+              setValue(event.target.value);
+              setSaved(false);
+            }}
+            className="mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-sm text-zinc-100 outline-none transition focus:border-indigo-400/50"
+          />
+          <p className="mt-1 text-[11px] text-zinc-600">
+            Default: <span className="font-mono">google/gemini-3.1-flash-image</span>
+          </p>
+        </label>
+      </div>
+      <div className="mt-4 flex items-center gap-3">
+        <button
+          type="button"
+          disabled={saving || (!dirty && saved)}
+          onClick={() => void save()}
+          className="h-10 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-5 text-sm font-semibold text-white transition hover:from-indigo-400 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {saving ? "Saving…" : "Save model"}
+        </button>
+        {saved && !dirty && <span className="text-xs font-medium text-emerald-400">Saved ✓</span>}
+        {error && <span className="text-xs text-rose-300">{error}</span>}
+      </div>
+    </section>
   );
 }
 
