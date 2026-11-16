@@ -63,12 +63,12 @@ export default function Home() {
             Powered by Gemini image generation via OpenRouter · Photos are processed per request and
             never stored.
           </span>
-          <a
+          <AdminNavLink
             href="/how-it-works.html"
             className="text-indigo-300/80 underline-offset-4 transition hover:text-indigo-200 hover:underline"
           >
             How it works →
-          </a>
+          </AdminNavLink>
         </div>
       </footer>
     </div>

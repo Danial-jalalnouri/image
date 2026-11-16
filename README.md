@@ -93,7 +93,10 @@ back when the setting is missing or unreadable.
   `<UserButton />` when signed in.
 - **Protected API**: `POST /api/generate` calls `await auth()` and returns `401 unauthorized`
   without a signed-in user — generation costs real credits. `GET /api/styles` stays public.
-- **Middleware**: `src/proxy.ts` (Next.js 16 name for middleware) runs `clerkMiddleware()`.
+- **Middleware**: `src/proxy.ts` (Next.js 16 name for middleware) runs `clerkMiddleware()`. It also
+  guards `how-it-works.html` (the internal docs page): unsigned visitors are sent to sign-in, and
+  signed-in non-admins are redirected home — the admin role is re-checked against the database on
+  every request, and a database error fails closed. The footer link to it only renders for admins.
 
 ## How it works
 
