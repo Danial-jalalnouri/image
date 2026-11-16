@@ -306,6 +306,7 @@ function ModelEditor({ model, onSaved }: { model: string; onSaved: (model: strin
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [suggestions, setSuggestions] = useState<Array<{ id: string; name: string; endpoint: string }>>([]);
+  const [picked, setPicked] = useState("");
 
   // Re-sync whenever fresh values arrive (load, refresh, save).
   useEffect(() => {
@@ -374,11 +375,45 @@ function ModelEditor({ model, onSaved }: { model: string; onSaved: (model: strin
       </div>
       <div className="max-w-md">
         <label className="block rounded-xl border border-white/5 bg-white/[0.02] p-4">
-          <span className="text-xs font-medium text-zinc-400">Model id</span>
+          <span className="text-xs font-medium text-zinc-400">Model</span>
+          {suggestions.length > 0 && (
+            <select
+              value={picked}
+              onChange={(event) => {
+                const id = event.target.value;
+                setPicked("");
+                if (!id) return;
+                setValue(id);
+                setSaved(false);
+              }}
+              className="mt-1.5 w-full rounded-lg border border-white/10 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-indigo-400/50"
+            >
+              <option value="">Browse compatible models ({suggestions.length})…</option>
+              <optgroup label="Chat/completions · photo editors">
+                {suggestions
+                  .filter((item) => item.endpoint === "chat")
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+              </optgroup>
+              <optgroup label="Image API · photo references">
+                {suggestions
+                  .filter((item) => item.endpoint === "images")
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+              </optgroup>
+            </select>
+          )}
+          <span className="mt-2 block text-xs font-medium text-zinc-400">…or type any model id</span>
           <input
             type="text"
             spellCheck={false}
-            list="image-edit-model-options"
+            autoComplete="off"
             value={value}
             onChange={(event) => {
               setValue(event.target.value);
@@ -386,19 +421,11 @@ function ModelEditor({ model, onSaved }: { model: string; onSaved: (model: strin
             }}
             className="mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-sm text-zinc-100 outline-none transition focus:border-indigo-400/50"
           />
-          <datalist id="image-edit-model-options">
-            {suggestions.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name} ({item.endpoint === "images" ? "Image API" : "chat"})
-              </option>
-            ))}
-          </datalist>
           <p className="mt-1 text-[11px] text-zinc-600">
             Must be an <span className="text-zinc-400">image-editing</span> model — it has to accept the
-            user&apos;s photo and return an image (e.g.{" "}
-            <span className="font-mono">google/gemini-3.1-flash-image</span>). The app picks the right
-            endpoint automatically: chat/completions or the Image API. Start typing for suggestions;
-            models that can&apos;t take a photo are rejected when saving.
+            user&apos;s photo and return an image. The app picks the right endpoint automatically
+            (chat/completions or the Image API); models that can&apos;t take a photo are rejected when
+            saving.
           </p>
         </label>
       </div>
