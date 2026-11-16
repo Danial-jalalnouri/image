@@ -4,7 +4,13 @@
  * Sends the user's photo plus a style prompt to the configured image model —
  * the `image_model` setting in the database, admin-editable at /admin, which
  * falls back to `google/gemini-3.1-flash-image` (Nano Banana 2) — and returns
- * the edited image inline as a base64 data URL.
+ * the edited image as a base64 data URL.
+ *
+ * Two endpoint families are supported, picked automatically per model:
+ * - chat/completions with `modalities: ["image","text"]` for omni image
+ *   -editing models (Gemini "Nano Banana" family, GPT-5 image, …);
+ * - the dedicated `POST /v1/images` Image API, which takes the photo as an
+ *   `input_references` entry (MiniMax H3 Image, Seedream, Qwen-Image, Flux, …).
  *
  * NEVER import this from client components — it depends on server env vars
  * and the database.
@@ -40,7 +46,12 @@ export class OpenRouterError extends Error {
   }
 }
 
-interface ChatCompletionResponse {
+/** Minimal error shape shared by both endpoint families' responses. */
+interface UpstreamErrorShape {
+  error?: { message?: string; code?: number | string };
+}
+
+interface ChatCompletionResponse extends UpstreamErrorShape {
   choices?: Array<{
     message?: {
       content?: string | Array<{ type?: string; text?: string }>;
@@ -52,7 +63,14 @@ interface ChatCompletionResponse {
     cost?: number;
     total_cost?: number;
   };
-  error?: { message?: string; code?: number | string };
+}
+
+interface ImagesApiResponse extends UpstreamErrorShape {
+  data?: Array<{ b64_json?: string; media_type?: string }>;
+  usage?: {
+    cost?: number;
+    total_cost?: number;
+  };
 }
 
 type MessageContent = Exclude<
@@ -71,7 +89,8 @@ export interface GenerateImageOptions {
 
 /**
  * Sends the user's photo + a style prompt to OpenRouter and returns the
- * generated image as a data URL.
+ * generated image as a data URL. The endpoint (chat/completions vs the
+ * Image API) is resolved from the model's published capabilities.
  */
 export async function generateStyledImage({
   imageDataUrl,
@@ -91,18 +110,91 @@ export async function generateStyledImage({
   // surfaces as upstream_error via the caller's catch — fail closed rather
   // than silently generating with a stale default.
   const model = await getImageModel();
+  const endpoint = await resolveImageModelEndpoint(model);
 
+  return endpoint === "images"
+    ? generateViaImagesApi({ apiKey, baseUrl, model, imageDataUrl, prompt, signal })
+    : generateViaChatCompletions({ apiKey, baseUrl, model, imageDataUrl, prompt, signal });
+}
+
+interface InternalCallOptions extends GenerateImageOptions {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
+function requestHeaders(apiKey: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+    // Attributed per OpenRouter recommendations.
+    "HTTP-Referer": process.env.APP_URL?.trim() || "http://localhost:3000",
+    "X-Title": "Portrait Studio",
+  };
+}
+
+function requestSignal(signal?: AbortSignal): AbortSignal {
+  // Image generation can take a while; give it a generous ceiling.
+  return signal ? AbortSignal.any([signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000);
+}
+
+/** Maps network-level failures (abort, deadline, unreachable) to typed errors. */
+function mapFetchFailure(error: unknown, signal?: AbortSignal): OpenRouterError {
+  if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+    return new OpenRouterError("The request was aborted.", {
+      status: 499,
+      code: "timeout",
+      retryable: true,
+    });
+  }
+  if (error instanceof DOMException && error.name === "TimeoutError") {
+    return new OpenRouterError("Image generation timed out. Please try again.", {
+      status: 504,
+      code: "timeout",
+      retryable: true,
+    });
+  }
+  return new OpenRouterError("Could not reach the image generation service.", {
+    status: 502,
+    code: "upstream_error",
+    retryable: true,
+  });
+}
+
+async function parseResponse<T extends UpstreamErrorShape>(response: Response): Promise<T> {
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new OpenRouterError("The image service returned an unreadable response.", {
+      status: 502,
+      code: "upstream_error",
+      retryable: true,
+    });
+  }
+}
+
+function extractCostUsd(usage: { cost?: number; total_cost?: number } | undefined): number | undefined {
+  return typeof usage?.cost === "number"
+    ? usage.cost
+    : typeof usage?.total_cost === "number"
+      ? usage.total_cost
+      : undefined;
+}
+
+/** chat/completions with inline image output (the original path). */
+async function generateViaChatCompletions({
+  apiKey,
+  baseUrl,
+  model,
+  imageDataUrl,
+  prompt,
+  signal,
+}: InternalCallOptions): Promise<GenerationResult> {
   let response: Response;
   try {
     response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        // Attributed per OpenRouter recommendations.
-        "HTTP-Referer": process.env.APP_URL?.trim() || "http://localhost:3000",
-        "X-Title": "Portrait Studio",
-      },
+      headers: requestHeaders(apiKey),
       body: JSON.stringify({
         model,
         // Ask for image output in addition to text.
@@ -119,42 +211,13 @@ export async function generateStyledImage({
           },
         ],
       }),
-      // Image generation can take a while; give it a generous ceiling.
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000),
+      signal: requestSignal(signal),
     });
   } catch (error) {
-    if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
-      throw new OpenRouterError("The request was aborted.", {
-        status: 499,
-        code: "timeout",
-        retryable: true,
-      });
-    }
-    if (error instanceof DOMException && error.name === "TimeoutError") {
-      throw new OpenRouterError("Image generation timed out. Please try again.", {
-        status: 504,
-        code: "timeout",
-        retryable: true,
-      });
-    }
-    throw new OpenRouterError("Could not reach the image generation service.", {
-      status: 502,
-      code: "upstream_error",
-      retryable: true,
-    });
+    throw mapFetchFailure(error, signal);
   }
 
-  let payload: ChatCompletionResponse;
-  try {
-    payload = (await response.json()) as ChatCompletionResponse;
-  } catch {
-    throw new OpenRouterError("The image service returned an unreadable response.", {
-      status: 502,
-      code: "upstream_error",
-      retryable: true,
-    });
-  }
-
+  const payload = await parseResponse<ChatCompletionResponse>(response);
   if (!response.ok) {
     throw mapUpstreamError(response.status, payload);
   }
@@ -174,24 +237,67 @@ export async function generateStyledImage({
     );
   }
 
-  const costUsd =
-    typeof payload.usage?.cost === "number"
-      ? payload.usage.cost
-      : typeof payload.usage?.total_cost === "number"
-        ? payload.usage.total_cost
-        : undefined;
+  return { image: imageUrl, note: extractText(message?.content) ?? undefined, costUsd: extractCostUsd(payload.usage) };
+}
 
-  return { image: imageUrl, note: extractText(message?.content) ?? undefined, costUsd };
+/**
+ * The dedicated Image API (POST /v1/images): prompt + the user's photo as an
+ * `input_references` entry. Used by models that are not served over
+ * chat/completions (MiniMax H3 Image, Seedream, Flux, GPT-Image, …).
+ */
+async function generateViaImagesApi({
+  apiKey,
+  baseUrl,
+  model,
+  imageDataUrl,
+  prompt,
+  signal,
+}: InternalCallOptions): Promise<GenerationResult> {
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/images`, {
+      method: "POST",
+      headers: requestHeaders(apiKey),
+      body: JSON.stringify({
+        model,
+        prompt,
+        // A single photo reference: "put THIS person in the scene".
+        input_references: [{ type: "image_url", image_url: { url: imageDataUrl } }],
+        n: 1,
+      }),
+      signal: requestSignal(signal),
+    });
+  } catch (error) {
+    throw mapFetchFailure(error, signal);
+  }
+
+  const payload = await parseResponse<ImagesApiResponse>(response);
+  if (!response.ok) {
+    throw mapUpstreamError(response.status, payload);
+  }
+
+  const entry = payload.data?.find((item) => typeof item.b64_json === "string" && item.b64_json.length > 0);
+  if (!entry?.b64_json) {
+    throw new OpenRouterError(
+      "The model did not return an image. Try a different photo or style.",
+      { status: 502, code: "upstream_refused", retryable: true },
+    );
+  }
+
+  const mediaType = /^image\//.test(entry.media_type ?? "") ? entry.media_type : "image/png";
+  return {
+    image: `data:${mediaType};base64,${entry.b64_json}`,
+    costUsd: extractCostUsd(payload.usage),
+  };
 }
 
 function mapUpstreamError(
   status: number,
-  payload: ChatCompletionResponse,
+  payload: UpstreamErrorShape,
 ): OpenRouterError {
   const detail = payload.error?.message ?? `Upstream responded with ${status}.`;
 
-  // A model picked in the admin area that can't edit photos (pure text-to-image
-  // models are served on /api/v1/images, not chat/completions) or an unknown id
+  // A model picked in the admin area that can't edit photos or an unknown id
   // both surface here. Say exactly what's wrong instead of echoing upstream jargon.
   if (/use the \/api\/v1\/images endpoint/i.test(detail) || /is an image generation model/i.test(detail)) {
     console.error("[openrouter] Incompatible image model configured:", detail);
@@ -254,10 +360,11 @@ function extractText(content: MessageContent | undefined): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Model catalog (public /models endpoint) — powers admin model validation
-// and suggestions. This app needs image-EDITING models: photo in, image out,
-// over chat/completions. Pure text-to-image models (served on /api/v1/images)
-// cannot receive the user's photo and are rejected.
+// Model catalogs — power admin model validation, suggestions, and endpoint
+// routing. OpenRouter exposes two families:
+// - /models: chat/completions models (a few can edit images inline);
+// - /images/models: the dedicated Image API (68+ models, several of which
+//   accept photo references and can therefore edit the user's photo).
 // ---------------------------------------------------------------------------
 
 /** Minimal model metadata used by the admin tooling. */
@@ -266,6 +373,16 @@ export interface OpenRouterModelInfo {
   name: string;
   inputModalities: string[];
   outputModalities: string[];
+}
+
+/** Which endpoint family serves a model. */
+export type ImageModelEndpoint = "chat" | "images";
+
+/** A model the app can use, with the endpoint it needs. */
+export interface ImageEditModel {
+  id: string;
+  name: string;
+  endpoint: ImageModelEndpoint;
 }
 
 interface CatalogResponse {
@@ -278,66 +395,139 @@ interface CatalogResponse {
 
 const MODEL_CATALOG_TTL_MS = 10 * 60 * 1000;
 let modelCatalogCache: { at: number; models: OpenRouterModelInfo[] } | null = null;
+let imagesCatalogCache: { at: number; models: OpenRouterModelInfo[] } | null = null;
 
-/** The full OpenRouter catalog, cached for 10 minutes. Null when unreachable. */
-async function fetchModelCatalog(): Promise<OpenRouterModelInfo[] | null> {
-  if (modelCatalogCache && Date.now() - modelCatalogCache.at < MODEL_CATALOG_TTL_MS) {
-    return modelCatalogCache.models;
+function parseCatalog(payload: CatalogResponse): OpenRouterModelInfo[] {
+  return (payload.data ?? []).flatMap((model) => {
+    if (typeof model.id !== "string") return [];
+    return [
+      {
+        id: model.id,
+        name: typeof model.name === "string" ? model.name : model.id,
+        inputModalities: model.architecture?.input_modalities ?? [],
+        outputModalities: model.architecture?.output_modalities ?? [],
+      },
+    ];
+  });
+}
+
+async function fetchCatalog(
+  path: "models" | "images/models",
+  cache: { at: number; models: OpenRouterModelInfo[] } | null,
+): Promise<{ models: OpenRouterModelInfo[] | null; nextCache: { at: number; models: OpenRouterModelInfo[] } | null }> {
+  if (cache && Date.now() - cache.at < MODEL_CATALOG_TTL_MS) {
+    return { models: cache.models, nextCache: cache };
   }
   const baseUrl = process.env.OPENROUTER_BASE_URL?.trim() || DEFAULT_BASE_URL;
   try {
-    const response = await fetch(`${baseUrl}/models`, { signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) return null;
+    const response = await fetch(`${baseUrl}/${path}`, { signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) return { models: null, nextCache: null };
     const payload = (await response.json()) as CatalogResponse;
-    const models = (payload.data ?? []).flatMap((model) => {
-      if (typeof model.id !== "string") return [];
-      return [
-        {
-          id: model.id,
-          name: typeof model.name === "string" ? model.name : model.id,
-          inputModalities: model.architecture?.input_modalities ?? [],
-          outputModalities: model.architecture?.output_modalities ?? [],
-        },
-      ];
-    });
-    modelCatalogCache = { at: Date.now(), models };
-    return models;
+    const models = parseCatalog(payload);
+    return { models, nextCache: { at: Date.now(), models } };
   } catch {
     // A catalog outage must never block admins or generation.
-    return null;
+    return { models: null, nextCache: null };
   }
 }
 
-/** Catalog models that can edit photos: image input + image output, minus auto-routers. */
-export async function listImageEditModels(): Promise<OpenRouterModelInfo[]> {
-  const models = await fetchModelCatalog();
-  if (!models) return [];
-  return models
-    .filter((model) => model.outputModalities.includes("image") && model.inputModalities.includes("image"))
-    .filter((model) => !model.id.startsWith("openrouter/auto"))
-    .sort((a, b) => a.name.localeCompare(b.name));
+/** The chat/completions catalog. Null when unreachable. */
+async function fetchModelCatalog(): Promise<OpenRouterModelInfo[] | null> {
+  const { models, nextCache } = await fetchCatalog("models", modelCatalogCache);
+  modelCatalogCache = nextCache;
+  return models;
+}
+
+/** The dedicated Image API catalog. Null when unreachable. */
+async function fetchImagesCatalog(): Promise<OpenRouterModelInfo[] | null> {
+  const { models, nextCache } = await fetchCatalog("images/models", imagesCatalogCache);
+  imagesCatalogCache = nextCache;
+  return models;
+}
+
+/**
+ * Every model the app can use, across both endpoint families: image output
+ * plus image input (the photo). Chat-capable models win when a model exists
+ * in both catalogs. Auto-routers are excluded.
+ */
+export async function listImageEditModels(): Promise<ImageEditModel[]> {
+  const [chat, images] = await Promise.all([fetchModelCatalog(), fetchImagesCatalog()]);
+  const results = new Map<string, ImageEditModel>();
+  if (chat) {
+    for (const model of chat) {
+      if (model.id.startsWith("openrouter/auto")) continue;
+      if (!model.outputModalities.includes("image") || !model.inputModalities.includes("image")) continue;
+      results.set(model.id.toLowerCase(), { id: model.id, name: model.name, endpoint: "chat" });
+    }
+  }
+  if (images) {
+    for (const model of images) {
+      if (results.has(model.id.toLowerCase())) continue;
+      if (!model.outputModalities.includes("image") || !model.inputModalities.includes("image")) continue;
+      results.set(model.id.toLowerCase(), { id: model.id, name: model.name, endpoint: "images" });
+    }
+  }
+  return [...results.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Which endpoint family serves this model id. Unknown ids (or unreachable
+ * catalogs) default to chat/completions — the original behavior, which
+ * fails with a mapped, actionable error.
+ */
+export async function resolveImageModelEndpoint(modelId: string): Promise<ImageModelEndpoint> {
+  const lower = modelId.toLowerCase();
+  const [chat, images] = await Promise.all([fetchModelCatalog(), fetchImagesCatalog()]);
+  const chatEntry = chat?.find((model) => model.id.toLowerCase() === lower);
+  if (chatEntry && chatEntry.outputModalities.includes("image") && chatEntry.inputModalities.includes("image")) {
+    return "chat";
+  }
+  const imagesEntry = images?.find((model) => model.id.toLowerCase() === lower);
+  if (imagesEntry && imagesEntry.inputModalities.includes("image")) {
+    return "images";
+  }
+  return "chat";
 }
 
 /**
  * Human-readable reason the model id is unusable here, or null when it is
- * compatible — or when the catalog is unavailable (fail open; a save is never
- * blocked by an OpenRouter outage).
+ * compatible — or when the catalogs are unavailable (fail open; a save is
+ * never blocked by an OpenRouter outage).
  */
 export async function validateImageModelId(modelId: string): Promise<string | null> {
-  const models = await fetchModelCatalog();
-  if (!models) return null;
-  const entry = models.find((model) => model.id.toLowerCase() === modelId.toLowerCase());
-  if (!entry) {
-    return `"${modelId}" is not in OpenRouter's model catalog — check the exact id at openrouter.ai/models.`;
+  const [chat, images] = await Promise.all([fetchModelCatalog(), fetchImagesCatalog()]);
+  if (!chat && !images) return null;
+
+  const lower = modelId.toLowerCase();
+  const chatEntry = chat?.find((model) => model.id.toLowerCase() === lower);
+  const imagesEntry = images?.find((model) => model.id.toLowerCase() === lower);
+
+  if (chatEntry) {
+    if (!chatEntry.outputModalities.includes("image")) {
+      return `"${chatEntry.name}" (${chatEntry.id}) cannot generate images at all, so it can't be used here.`;
+    }
+    if (!chatEntry.inputModalities.includes("image")) {
+      return (
+        `"${chatEntry.name}" (${chatEntry.id}) is a text-to-image model — it cannot receive the user's photo, ` +
+        "which this app requires. Pick an image-editing model such as google/gemini-3.1-flash-image."
+      );
+    }
+    return null;
   }
-  if (!entry.outputModalities.includes("image")) {
-    return `"${entry.name}" (${entry.id}) cannot generate images at all, so it can't be used here.`;
+
+  if (imagesEntry) {
+    if (!imagesEntry.inputModalities.includes("image")) {
+      return (
+        `"${imagesEntry.name}" (${imagesEntry.id}) only creates images from a text description — ` +
+        "it can't use the user's photo, which this app requires."
+      );
+    }
+    return null;
   }
-  if (!entry.inputModalities.includes("image")) {
-    return (
-      `"${entry.name}" (${entry.id}) is a text-to-image model — it cannot receive the user's photo, ` +
-      "which this app requires. Pick an image-editing model such as google/gemini-3.1-flash-image."
-    );
+
+  // Only reject as unknown when both catalogs were actually loaded.
+  if (chat && images) {
+    return `"${modelId}" is not in OpenRouter's model catalogs — check the exact id at openrouter.ai/models.`;
   }
   return null;
 }

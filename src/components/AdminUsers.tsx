@@ -305,22 +305,23 @@ function ModelEditor({ model, onSaved }: { model: string; onSaved: (model: strin
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [suggestions, setSuggestions] = useState<Array<{ id: string; name: string }>>([]);
+  const [suggestions, setSuggestions] = useState<Array<{ id: string; name: string; endpoint: string }>>([]);
 
   // Re-sync whenever fresh values arrive (load, refresh, save).
   useEffect(() => {
     setValue(model);
   }, [model]);
 
-  // Compatible-model suggestions (photo in → image out). Optional nicety —
-  // the card works fine as free-text if OpenRouter is unreachable.
+  // Compatible-model suggestions across both endpoint families (photo in →
+  // image out). Optional nicety — the card works fine as free-text if
+  // OpenRouter is unreachable.
   useEffect(() => {
     void (async () => {
       try {
         const response = await fetch("/api/admin/models");
         const payload = (await response.json()) as {
           ok: boolean;
-          models?: Array<{ id: string; name: string }>;
+          models?: Array<{ id: string; name: string; endpoint: string }>;
         };
         if (payload.ok) setSuggestions(payload.models ?? []);
       } catch {
@@ -388,14 +389,16 @@ function ModelEditor({ model, onSaved }: { model: string; onSaved: (model: strin
           <datalist id="image-edit-model-options">
             {suggestions.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.name}
+                {item.name} ({item.endpoint === "images" ? "Image API" : "chat"})
               </option>
             ))}
           </datalist>
           <p className="mt-1 text-[11px] text-zinc-600">
-            Must be an <span className="text-zinc-400">image-editing</span> model — accepts the user&apos;s
-            photo and returns an image (e.g. <span className="font-mono">google/gemini-3.1-flash-image</span>).
-            Start typing for suggestions; pure text-to-image models are rejected when saving.
+            Must be an <span className="text-zinc-400">image-editing</span> model — it has to accept the
+            user&apos;s photo and return an image (e.g.{" "}
+            <span className="font-mono">google/gemini-3.1-flash-image</span>). The app picks the right
+            endpoint automatically: chat/completions or the Image API. Start typing for suggestions;
+            models that can&apos;t take a photo are rejected when saving.
           </p>
         </label>
       </div>

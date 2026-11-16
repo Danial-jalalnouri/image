@@ -82,15 +82,22 @@ page ("Image model" card). It applies to every generation from the next
 request onward. `DEFAULT_MODEL` in `src/lib/constants.ts` only seeds/falls
 back when the setting is missing or unreadable.
 
-**Compatibility:** this app *edits* a photo — the user's photo is sent with the
-prompt through `chat/completions` (`modalities: ["image","text"]`), so the model
-must accept image **input** and return image **output** (the Gemini "Nano
-Banana" family, GPT-5 image, …). Pure text-to-image models (served on OpenRouter's
-`/api/v1/images` endpoint, e.g. Tencent Hunyuan Image) cannot receive the photo and
-are rejected at save time using OpenRouter's public model catalog (cached 10 min,
-fail-open when unreachable); the card also suggests compatible ids. If an
-incompatible or unknown id still reaches generation, the error is mapped to a
-clear "admin needs to pick an image-editing model" message.
+**Compatibility:** this app *edits* a photo — the user's photo travels with the
+prompt, so the model must accept image **input** and return image **output**.
+OpenRouter exposes two endpoint families and the app routes between them
+automatically, based on OpenRouter's public catalogs (both cached 10 min,
+fail-open when unreachable):
+
+- `chat/completions` with `modalities: ["image","text"]` — Gemini "Nano Banana"
+  family, GPT-5 image, … (catalog: `/api/v1/models`);
+- the dedicated **Image API** `POST /v1/images`, with the photo sent as an
+  `input_references` entry — MiniMax H3 Image, ByteDance Seedream, Qwen-Image,
+  Flux, GPT-Image, … (catalog: `/api/v1/images/models`).
+
+Save-time validation rejects models that can't take a photo (pure text-to-image)
+or unknown ids, and the admin card suggests compatible models across both
+families. If an incompatible or unknown id still reaches generation, the error is
+mapped to a clear "admin needs to pick an image-editing model" message.
 
 ## Authentication
 
